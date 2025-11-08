@@ -1,5 +1,15 @@
 # Hexahedral Mesh Contact Detector - Implementation Plan
 
+## Task List
+
+- [ ] **Phase 1: Foundation & Infrastructure** - Set up project, data structures, and Exodus II reading (see [Phase 1](#phase-1-foundation--infrastructure-week-1-2))
+- [ ] **Phase 2: Surface Extraction** - Implement "skinning" algorithm to extract outer surface (see [Phase 2](#phase-2-surface-extraction-week-2-3))
+- [ ] **Phase 3: Spatial Indexing & Contact Detection** - Implement contact pair detection with octree acceleration (see [Phase 3](#phase-3-spatial-indexing--contact-detection-week-3-5))
+- [ ] **Phase 4: Metric Computation** - Compute surface-level and element-level metrics (see [Phase 4](#phase-4-metric-computation-week-5-6))
+- [ ] **Phase 5: CLI Polishing & Documentation** - Production-ready CLI with good UX (see [Phase 5](#phase-5-cli-polishing--documentation-week-6-7))
+- [ ] **Phase 6 (Optional): Performance Optimization** - Ensure ≤30s for 1M elements (see [Phase 6](#phase-6-optional-performance-optimization))
+- [ ] **Phase 7 (Future): CAD Import** - Import meshless CAD geometry from STEP/IGES (see [Phase 7](#phase-7-future-cad-import-stepiges))
+
 ## Executive Summary
 
 This document outlines the implementation plan for a high-performance Rust application that processes massive hexahedral mesh files (up to 1-2M elements) for surface extraction, contact pair detection, and metric computation with a target processing time of ≤30 seconds for 1M elements.

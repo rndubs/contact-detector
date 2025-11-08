@@ -4,6 +4,24 @@
 
 This document outlines the implementation plan for a high-performance Rust application that processes massive hexahedral mesh files (up to 1-2M elements) for surface extraction, contact pair detection, and metric computation with a target processing time of ≤30 seconds for 1M elements.
 
+## Requirements Summary
+
+Based on clarifying discussions, the following requirements are confirmed:
+
+- **Mesh Size**: Up to 1-2 million hexahedral elements
+- **Performance Target**: Process 1M elements in ≤30 seconds
+- **Parallelization**: Optional (not required initially)
+- **Architecture**: CLI application only (not a library)
+- **Visualization**: Export data for separate VS Code extension using VTK.js
+- **Input Format**: Standard Exodus II (.exo) files only
+- **Output Format**: VTK/VTU files with embedded metadata (format optimized for application needs)
+- **Contact Pairs**: Handle multiple contact pair definitions in a single run
+- **Metadata**: Preserve Exodus II metadata (part/material names, nodesets, sidesets)
+- **Tolerances**: Configurable initial gap distance (e.g., 0.001-0.005 inches)
+- **Platforms**: Linux primary; macOS/Windows optional
+- **Use Case**: Internal use only
+- **Test Data**: Downloaded from msh2exo-examples repository (see `test-data/` directory)
+
 ## Research Findings - Rust Ecosystem
 
 ### Available Libraries
@@ -481,18 +499,22 @@ contact-detector/
 
 ## Next Steps
 
-1. Review this plan and confirm approach
-2. Set up initial Cargo project structure
-3. Create small test Exodus II file for development
+1. ✅ ~~Review plan and confirm approach~~ - **CONFIRMED**
+2. ✅ ~~Obtain test Exodus II file~~ - **Downloaded to `test-data/hexcyl.exo`**
+3. Set up initial Cargo project structure
 4. Begin Phase 1 implementation
 5. Iterate with feedback on intermediate deliverables
 
 ---
 
-## Questions for Discussion
+## Decisions Made
 
-1. Do you have example Exodus II files we can use for testing?
-2. Should we support multiple contact pair definitions in a single run?
-3. Are there specific VTK.js requirements for metadata format?
-4. Do you want a library crate in addition to the CLI (for programmatic use)?
-5. Should we support other mesh formats (e.g., Gmsh, Abaqus) in the future?
+All clarifying questions have been answered:
+
+1. ✅ **Test Files**: Downloaded hexahedral mesh example from msh2exo-examples (264KB, HEX8 elements)
+2. ✅ **Multiple Contact Pairs**: Yes, handle all contact pair definitions in a single run
+3. ✅ **VTK.js Metadata**: Format will be optimized for this application; VS Code extension will adapt
+4. ✅ **Library vs CLI**: CLI application only (no library crate needed)
+5. ✅ **Future Formats**: No additional mesh formats required (Exodus II only)
+
+**Status**: Ready to begin Phase 1 implementation.

@@ -7,6 +7,9 @@ use crate::mesh::types::SurfaceMesh;
 use kiddo::KdTree;
 use std::collections::HashSet;
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 /// Detect contact pairs between two surfaces
 pub fn detect_contact_pairs(
     surface_a: &SurfaceMesh,
@@ -29,79 +32,94 @@ pub fn detect_contact_pairs(
     log::info!("Building spatial index for surface B...");
     let tree_b = build_face_kdtree(surface_b);
 
-    // Track which faces on B have been paired
-    let mut paired_b = HashSet::new();
-
-    // For each face on surface A, find closest face on surface B
+    // For each face on surface A, find closest face on surface B (parallelized for large datasets)
     log::info!("Searching for contact pairs...");
-    for (face_a_idx, _face_a) in surface_a.faces.iter().enumerate() {
-        let centroid_a = &surface_a.face_centroids[face_a_idx];
-        let normal_a = &surface_a.face_normals[face_a_idx];
 
-        // Query k-d tree for nearest faces on surface B
-        let search_radius = criteria.search_radius();
-        let nearest = tree_b.within::<kiddo::SquaredEuclidean>(
-            &[centroid_a.x, centroid_a.y, centroid_a.z],
-            search_radius * search_radius,
-        );
+    // Threshold for parallelization (below this, overhead isn't worth it)
+    const PARALLEL_THRESHOLD: usize = 1000;
 
-        // Find best matching face on B
-        let mut best_match: Option<ContactPair> = None;
-        let mut best_distance_abs = f64::MAX;
+    #[cfg(feature = "parallel")]
+    let face_results: Vec<_> = if surface_a.faces.len() >= PARALLEL_THRESHOLD {
+        surface_a
+            .faces
+            .par_iter()
+            .enumerate()
+            .map(|(face_a_idx, _face_a)| {
+                find_best_match(
+                    face_a_idx,
+                    surface_a,
+                    surface_b,
+                    &tree_b,
+                    criteria,
+                )
+            })
+            .collect()
+    } else {
+        surface_a
+            .faces
+            .iter()
+            .enumerate()
+            .map(|(face_a_idx, _face_a)| {
+                find_best_match(
+                    face_a_idx,
+                    surface_a,
+                    surface_b,
+                    &tree_b,
+                    criteria,
+                )
+            })
+            .collect()
+    };
 
-        for neighbor in nearest.iter() {
-            let face_b_idx = neighbor.item as usize;
-            let centroid_b = &surface_b.face_centroids[face_b_idx];
-            let normal_b = &surface_b.face_normals[face_b_idx];
+    #[cfg(not(feature = "parallel"))]
+    let face_results: Vec<_> = surface_a
+        .faces
+        .iter()
+        .enumerate()
+        .map(|(face_a_idx, _face_a)| {
+            find_best_match(
+                face_a_idx,
+                surface_a,
+                surface_b,
+                &tree_b,
+                criteria,
+            )
+        })
+        .collect();
 
-            // Compute signed distance from A to B along A's normal
-            let distance = signed_distance_to_plane(centroid_b, centroid_a, normal_a);
-
-            // Check if distance is within range
-            if !criteria.is_in_range(distance) {
-                continue;
+    // Collect results
+    let mut paired_b = HashSet::new();
+    for (face_a_idx, result) in face_results.into_iter().enumerate() {
+        match result {
+            Some(pair) => {
+                paired_b.insert(pair.surface_b_face_id);
+                results.pairs.push(pair);
             }
-
-            // Compute angle between normals
-            let angle = angle_between_vectors(normal_a, normal_b);
-
-            // Check if angle is within tolerance
-            if !criteria.is_angle_valid(angle) {
-                continue;
+            None => {
+                results.unpaired_a.push(face_a_idx);
             }
-
-            // Project centroid A onto B's plane to get contact point
-            let contact_point = project_point_to_plane(centroid_a, centroid_b, normal_b);
-
-            // Keep track of the best match (smallest absolute distance)
-            let distance_abs = distance.abs();
-            if distance_abs < best_distance_abs {
-                best_distance_abs = distance_abs;
-                best_match = Some(ContactPair {
-                    surface_a_face_id: face_a_idx,
-                    surface_b_face_id: face_b_idx,
-                    distance,
-                    normal_angle: angle,
-                    contact_point,
-                });
-            }
-        }
-
-        // Store the best match if found
-        if let Some(pair) = best_match {
-            paired_b.insert(pair.surface_b_face_id);
-            results.pairs.push(pair);
-        } else {
-            results.unpaired_a.push(face_a_idx);
-        }
-    }
-
-    // Find unpaired faces on B
-    for face_b_idx in 0..surface_b.faces.len() {
-        if !paired_b.contains(&face_b_idx) {
-            results.unpaired_b.push(face_b_idx);
         }
     }
+
+    // Find unpaired faces on B (parallelized for large datasets)
+    #[cfg(feature = "parallel")]
+    let unpaired_b: Vec<usize> = if surface_b.faces.len() >= PARALLEL_THRESHOLD {
+        (0..surface_b.faces.len())
+            .into_par_iter()
+            .filter(|face_b_idx| !paired_b.contains(face_b_idx))
+            .collect()
+    } else {
+        (0..surface_b.faces.len())
+            .filter(|face_b_idx| !paired_b.contains(face_b_idx))
+            .collect()
+    };
+
+    #[cfg(not(feature = "parallel"))]
+    let unpaired_b: Vec<usize> = (0..surface_b.faces.len())
+        .filter(|face_b_idx| !paired_b.contains(face_b_idx))
+        .collect();
+
+    results.unpaired_b = unpaired_b;
 
     log::info!(
         "Found {} contact pairs, {} unpaired on A, {} unpaired on B",
@@ -111,6 +129,69 @@ pub fn detect_contact_pairs(
     );
 
     Ok(results)
+}
+
+/// Find the best matching face on surface B for a given face on surface A
+fn find_best_match(
+    face_a_idx: usize,
+    surface_a: &SurfaceMesh,
+    surface_b: &SurfaceMesh,
+    tree_b: &KdTree<f64, 3>,
+    criteria: &ContactCriteria,
+) -> Option<ContactPair> {
+    let centroid_a = &surface_a.face_centroids[face_a_idx];
+    let normal_a = &surface_a.face_normals[face_a_idx];
+
+    // Query k-d tree for nearest faces on surface B
+    let search_radius = criteria.search_radius();
+    let nearest = tree_b.within::<kiddo::SquaredEuclidean>(
+        &[centroid_a.x, centroid_a.y, centroid_a.z],
+        search_radius * search_radius,
+    );
+
+    // Find best matching face on B
+    let mut best_match: Option<ContactPair> = None;
+    let mut best_distance_abs = f64::MAX;
+
+    for neighbor in nearest.iter() {
+        let face_b_idx = neighbor.item as usize;
+        let centroid_b = &surface_b.face_centroids[face_b_idx];
+        let normal_b = &surface_b.face_normals[face_b_idx];
+
+        // Compute signed distance from A to B along A's normal
+        let distance = signed_distance_to_plane(centroid_b, centroid_a, normal_a);
+
+        // Check if distance is within range
+        if !criteria.is_in_range(distance) {
+            continue;
+        }
+
+        // Compute angle between normals
+        let angle = angle_between_vectors(normal_a, normal_b);
+
+        // Check if angle is within tolerance
+        if !criteria.is_angle_valid(angle) {
+            continue;
+        }
+
+        // Project centroid A onto B's plane to get contact point
+        let contact_point = project_point_to_plane(centroid_a, centroid_b, normal_b);
+
+        // Keep track of the best match (smallest absolute distance)
+        let distance_abs = distance.abs();
+        if distance_abs < best_distance_abs {
+            best_distance_abs = distance_abs;
+            best_match = Some(ContactPair {
+                surface_a_face_id: face_a_idx,
+                surface_b_face_id: face_b_idx,
+                distance,
+                normal_angle: angle,
+                contact_point,
+            });
+        }
+    }
+
+    best_match
 }
 
 /// Build a k-d tree for spatial indexing of face centroids

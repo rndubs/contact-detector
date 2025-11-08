@@ -45,16 +45,25 @@ vtkio = "0.6"
 # Using kiddo as a high-performance k-d tree for nearest neighbor searches
 kiddo = "4.2"
 
+# Parallelization for performance (optional)
+rayon = { version = "1.10", optional = true }
+
 [dev-dependencies]
 approx = "0.5"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [features]
-default = ["exodus-static"]
+default = ["exodus-static", "parallel"]
 exodus = ["netcdf"]
 exodus-static = ["exodus", "netcdf/static"]
+parallel = ["rayon"]
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+[[bench]]
+name = "performance"
+harness = false

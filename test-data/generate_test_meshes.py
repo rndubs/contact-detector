@@ -196,23 +196,24 @@ def generate_aligned_cubes_10x10x10():
     for k in range(n):
         for j in range(n):
             for i in range(n):
-                # For k=0 layer, use shared nodes from first cube
+                # For k=0 layer, bottom nodes are from shared face, top nodes from second cube's first layer
                 if k == 0:
-                    # Bottom nodes are from the top face of first cube
+                    # Bottom nodes are from the top face of first cube (the shared interface)
                     n0 = (nodes_per_dim - 1) * nodes_per_dim * nodes_per_dim + j * nodes_per_dim + i
                     n1 = n0 + 1
                     n2 = n0 + nodes_per_dim + 1
                     n3 = n0 + nodes_per_dim
-                    # Top nodes are from second cube
+                    # Top nodes are from second cube's first layer
+                    # Second cube's new nodes start at base_offset
                     n4_local = 0 * nodes_per_dim * nodes_per_dim + j * nodes_per_dim + i
-                    n4 = base_offset + n4_local - num_shared_nodes
+                    n4 = base_offset + n4_local
                     n5 = n4 + 1
                     n6 = n4 + nodes_per_dim + 1
                     n7 = n4 + nodes_per_dim
                 else:
                     # All nodes from second cube
                     n0_local = (k - 1) * nodes_per_dim * nodes_per_dim + j * nodes_per_dim + i
-                    n0 = base_offset + n0_local - num_shared_nodes
+                    n0 = base_offset + n0_local
                     n1 = n0 + 1
                     n2 = n0 + nodes_per_dim + 1
                     n3 = n0 + nodes_per_dim
@@ -371,7 +372,8 @@ def generate_cube_cylinder_contact():
     num_nodes = num_nodes_cube + num_nodes_cylinder
 
     num_elem_cube = n_cube ** 3
-    num_elem_cylinder = n_radial * n_circum * n_height
+    # Skip innermost radial layer to avoid degenerate elements at center
+    num_elem_cylinder = (n_radial - 1) * n_circum * n_height
     num_elem = num_elem_cube + num_elem_cylinder
     num_el_blk = 2
 
@@ -443,7 +445,9 @@ def generate_cube_cylinder_contact():
     for k in range(n_height):
         for j in range(n_circum):
             j_next = (j + 1) % n_circum
-            for i in range(n_radial):
+            # Skip i=0 to avoid degenerate elements at the center axis
+            # Start from i=1 to create a hollow cylinder
+            for i in range(1, n_radial):
                 # Bottom ring nodes
                 n0 = base_offset + k * nodes_per_ring + j * (n_radial + 1) + i
                 n1 = n0 + 1

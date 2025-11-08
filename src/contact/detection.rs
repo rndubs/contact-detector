@@ -6,7 +6,7 @@ use crate::mesh::geometry::{
     angle_between_vectors, project_point_to_plane, signed_distance_to_plane,
 };
 use crate::mesh::types::SurfaceMesh;
-use kiddo::KdTree;
+use kiddo::ImmutableKdTree;
 use std::collections::HashSet;
 
 #[cfg(feature = "parallel")]
@@ -120,7 +120,7 @@ fn find_best_match(
     face_a_idx: usize,
     surface_a: &SurfaceMesh,
     surface_b: &SurfaceMesh,
-    tree_b: &KdTree<f64, 3>,
+    tree_b: &ImmutableKdTree<f64, 3>,
     criteria: &ContactCriteria,
 ) -> Option<ContactPair> {
     let centroid_a = &surface_a.face_centroids[face_a_idx];
@@ -179,14 +179,16 @@ fn find_best_match(
 }
 
 /// Build a k-d tree for spatial indexing of face centroids
-fn build_face_kdtree(surface: &SurfaceMesh) -> KdTree<f64, 3> {
-    let mut tree = KdTree::new();
+fn build_face_kdtree(surface: &SurfaceMesh) -> ImmutableKdTree<f64, 3> {
+    // Collect all points
+    let points: Vec<[f64; 3]> = surface
+        .face_centroids
+        .iter()
+        .map(|c| [c.x, c.y, c.z])
+        .collect();
 
-    for (face_idx, centroid) in surface.face_centroids.iter().enumerate() {
-        tree.add(&[centroid.x, centroid.y, centroid.z], face_idx as u64);
-    }
-
-    tree
+    // Build immutable k-d tree (indices are implicit: 0, 1, 2, ...)
+    ImmutableKdTree::new_from_slice(&points)
 }
 
 #[cfg(test)]

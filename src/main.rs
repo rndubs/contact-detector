@@ -285,11 +285,164 @@ fn cmd_contact(
 }
 
 fn cmd_analyze(
-    _input: std::path::PathBuf,
-    _pairs: String,
-    _config: Option<std::path::PathBuf>,
-    _output: std::path::PathBuf,
+    input: std::path::PathBuf,
+    pairs: String,
+    config_file: Option<std::path::PathBuf>,
+    output: std::path::PathBuf,
 ) -> Result<()> {
-    println!("Full analysis not yet implemented (Phase 4)");
+    use contact_detector::config::AnalysisConfig;
+    use contact_detector::contact::{detect_contact_pairs, SurfaceMetrics};
+    use contact_detector::io::write_surface_with_contact_metadata;
+    use contact_detector::mesh::extract_surface;
+    use indicatif::{ProgressBar, ProgressStyle};
+
+    log::info!("Starting batch analysis...");
+
+    // Load or create configuration
+    let config = if let Some(config_path) = config_file {
+        AnalysisConfig::from_file(&config_path)?
+    } else {
+        use contact_detector::contact::ContactCriteria;
+        AnalysisConfig::from_pairs_string(
+            input.to_string_lossy().to_string(),
+            output.to_string_lossy().to_string(),
+            &pairs,
+            ContactCriteria::default(),
+        )?
+    };
+
+    log::info!(
+        "Analyzing {} contact pairs",
+        config.contact_pairs.len()
+    );
+
+    // Read mesh
+    println!("Reading mesh file: {}", config.input_file);
+    let mesh = if input.extension().and_then(|s| s.to_str()) == Some("json") {
+        contact_detector::io::read_json_mesh(&input)?
+    } else {
+        #[cfg(feature = "exodus")]
+        {
+            let reader = ExodusReader::open(&input)?;
+            reader.read_mesh()?
+        }
+        #[cfg(not(feature = "exodus"))]
+        {
+            return Err(contact_detector::ContactDetectorError::ConfigError(
+                "Exodus support not compiled in".to_string()
+            ));
+        }
+    };
+
+    println!(
+        "Loaded mesh: {} nodes, {} elements, {} blocks\n",
+        mesh.num_nodes(),
+        mesh.num_elements(),
+        mesh.num_blocks()
+    );
+
+    // Extract surfaces
+    println!("Extracting surfaces...");
+    let surfaces = extract_surface(&mesh)?;
+    println!("Extracted {} surfaces\n", surfaces.len());
+
+    // Create output directory
+    std::fs::create_dir_all(&output)?;
+
+    // Setup progress bar
+    let pb = ProgressBar::new(config.contact_pairs.len() as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("=>-"),
+    );
+
+    // Process each contact pair
+    for (idx, pair_config) in config.contact_pairs.iter().enumerate() {
+        pb.set_message(format!(
+            "{} ↔ {}",
+            pair_config.surface_a, pair_config.surface_b
+        ));
+
+        // Find surfaces
+        let surface_a = surfaces
+            .iter()
+            .find(|s| s.part_name == pair_config.surface_a)
+            .ok_or_else(|| {
+                contact_detector::ContactDetectorError::ElementBlockNotFound(
+                    pair_config.surface_a.clone(),
+                )
+            })?;
+
+        let surface_b = surfaces
+            .iter()
+            .find(|s| s.part_name == pair_config.surface_b)
+            .ok_or_else(|| {
+                contact_detector::ContactDetectorError::ElementBlockNotFound(
+                    pair_config.surface_b.clone(),
+                )
+            })?;
+
+        // Detect contact pairs
+        let results = detect_contact_pairs(surface_a, surface_b, &pair_config.criteria)?;
+
+        // Compute metrics
+        let metrics_a = SurfaceMetrics::compute(&results, surface_a);
+
+        // Generate output filename
+        let output_filename = pair_config.output_file.clone().unwrap_or_else(|| {
+            format!(
+                "contact_{}_{}.vtu",
+                sanitize_filename(&pair_config.surface_a),
+                sanitize_filename(&pair_config.surface_b)
+            )
+        });
+
+        let output_path = output.join(&output_filename);
+
+        // Write results
+        write_surface_with_contact_metadata(surface_a, &results, &metrics_a, &output_path)?;
+
+        // Print brief summary
+        println!(
+            "\n[{}/{}] {} ↔ {}:",
+            idx + 1,
+            config.contact_pairs.len(),
+            pair_config.surface_a,
+            pair_config.surface_b
+        );
+        println!(
+            "  Pairs: {}, Unpaired: {}, Avg Distance: {:.6}",
+            metrics_a.num_pairs,
+            metrics_a.num_unpaired,
+            metrics_a.avg_distance
+        );
+        println!("  Output: {}", output_filename);
+
+        pb.inc(1);
+    }
+
+    pb.finish_with_message("Complete");
+
+    println!("\n{}", "=".repeat(60));
+    println!("BATCH ANALYSIS COMPLETE");
+    println!("{}", "=".repeat(60));
+    println!("Processed {} contact pairs", config.contact_pairs.len());
+    println!("Results written to: {}", output.display());
+    println!("{}", "=".repeat(60));
+
     Ok(())
+}
+
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }

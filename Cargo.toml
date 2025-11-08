@@ -47,7 +47,7 @@ approx = "0.5"
 [features]
 default = ["exodus-static"]
 exodus = ["netcdf"]
-exodus-static = ["netcdf/static"]
+exodus-static = ["exodus", "netcdf/static"]
 
 [profile.release]
 opt-level = 3

@@ -125,7 +125,7 @@ impl ExodusReader {
             .attribute("elem_type")
             .and_then(|attr| attr.value().ok())
             .and_then(|val| {
-                if let netcdf::AttrValue::Str(s) = val {
+                if let netcdf::AttributeValue::Str(s) = val {
                     Some(s)
                 } else {
                     None
@@ -167,12 +167,13 @@ impl ExodusReader {
         }
 
         // Read connectivity (Exodus uses 1-based indexing)
-        let connectivity: Vec<i32> = var.get(..).map_err(|e| {
-            ContactDetectorError::ExodusReadError(format!(
+        let connectivity_array = var.get(..).map_err(|e| {
+            ContactDetectorError::NetcdfError(format!(
                 "Failed to read connectivity for block {}: {}",
                 blk_id, e
             ))
         })?;
+        let connectivity: Vec<i32> = connectivity_array.into_iter().collect();
 
         // Get block name
         let block_name = self.get_block_name(blk_id).unwrap_or_else(|| format!("Block_{}", blk_id));
@@ -201,17 +202,17 @@ impl ExodusReader {
 
     /// Get element block name
     fn get_block_name(&self, blk_id: usize) -> Option<String> {
-        // Try to read eb_names variable
+        // Try to read eb_names variable (stored as character array)
         if let Some(var) = self.file.variable("eb_names") {
-            if let Ok(names) = var.get::<String, _>(..) {
+            if let Ok(names) = self.read_string_array(&var) {
                 return names.get(blk_id - 1).map(|s| s.trim().to_string());
             }
         }
 
         // Try eb_prop1 (element block IDs)
         if let Some(var) = self.file.variable("eb_prop1") {
-            if let Ok(ids) = var.get::<i32, _>(..) {
-                if let Some(&id) = ids.get(blk_id - 1) {
+            if let Ok(ids_array) = var.get::<i32, _>(..) {
+                if let Some(id) = ids_array.into_iter().nth(blk_id - 1) {
                     return Some(format!("Block_{}", id));
                 }
             }
@@ -231,9 +232,9 @@ impl ExodusReader {
             if let Ok(name) = self.get_nodeset_name(ns_id) {
                 let var_name = format!("node_ns{}", ns_id);
                 if let Some(var) = self.file.variable(&var_name) {
-                    if let Ok(nodes) = var.get::<i32, _>(..) {
+                    if let Ok(nodes_array) = var.get::<i32, _>(..) {
                         // Convert from 1-based to 0-based indexing
-                        let node_indices: Vec<usize> = nodes.iter().map(|&n| (n - 1) as usize).collect();
+                        let node_indices: Vec<usize> = nodes_array.into_iter().map(|n| (n - 1) as usize).collect();
                         mesh.node_sets.insert(name, node_indices);
                     }
                 }
@@ -246,7 +247,7 @@ impl ExodusReader {
     /// Get node set name
     fn get_nodeset_name(&self, ns_id: usize) -> Result<String> {
         if let Some(var) = self.file.variable("ns_names") {
-            if let Ok(names) = var.get::<String, _>(..) {
+            if let Ok(names) = self.read_string_array(&var) {
                 if let Some(name) = names.get(ns_id - 1) {
                     return Ok(name.trim().to_string());
                 }
@@ -268,11 +269,11 @@ impl ExodusReader {
                 let side_var = format!("side_ss{}", ss_id);
 
                 if let (Some(elem_v), Some(side_v)) = (self.file.variable(&elem_var), self.file.variable(&side_var)) {
-                    if let (Ok(elems), Ok(sides)) = (elem_v.get::<i32, _>(..), side_v.get::<i32, _>(..())) {
-                        let side_list: Vec<(usize, u8)> = elems
-                            .iter()
-                            .zip(sides.iter())
-                            .map(|(&e, &s)| ((e - 1) as usize, s as u8))
+                    if let (Ok(elems_array), Ok(sides_array)) = (elem_v.get::<i32, _>(..), side_v.get::<i32, _>(..)) {
+                        let side_list: Vec<(usize, u8)> = elems_array
+                            .into_iter()
+                            .zip(sides_array.into_iter())
+                            .map(|(e, s)| ((e - 1) as usize, s as u8))
                             .collect();
                         mesh.side_sets.insert(name, side_list);
                     }
@@ -286,7 +287,7 @@ impl ExodusReader {
     /// Get side set name
     fn get_sideset_name(&self, ss_id: usize) -> Result<String> {
         if let Some(var) = self.file.variable("ss_names") {
-            if let Ok(names) = var.get::<String, _>(..) {
+            if let Ok(names) = self.read_string_array(&var) {
                 if let Some(name) = names.get(ss_id - 1) {
                     return Ok(name.trim().to_string());
                 }
@@ -301,9 +302,10 @@ impl ExodusReader {
             ContactDetectorError::ExodusReadError(format!("Variable '{}' not found", name))
         })?;
 
-        let data: Vec<f64> = var.get(..).map_err(|e| {
-            ContactDetectorError::ExodusReadError(format!("Failed to read variable '{}': {}", name, e))
+        let data_array = var.get(..).map_err(|e| {
+            ContactDetectorError::NetcdfError(format!("Failed to read variable '{}': {}", name, e))
         })?;
+        let data: Vec<f64> = data_array.into_iter().collect();
 
         if data.len() != expected_len {
             return Err(ContactDetectorError::ExodusReadError(format!(
@@ -315,6 +317,57 @@ impl ExodusReader {
         }
 
         Ok(data)
+    }
+
+    /// Read a string array from a NetCDF variable (stored as 2D char array)
+    fn read_string_array(&self, var: &netcdf::Variable) -> Result<Vec<String>> {
+        // NetCDF strings are typically stored as 2D char arrays
+        // Dimensions: [num_strings, string_length]
+        let dims = var.dimensions();
+
+        if dims.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        if dims.len() == 1 {
+            // 1D character array - single string
+            let chars_array = var.get(..).map_err(|e| {
+                ContactDetectorError::NetcdfError(format!("Failed to read string array: {}", e))
+            })?;
+            let chars: Vec<u8> = chars_array.into_iter().collect();
+            let s = String::from_utf8_lossy(&chars).trim_end_matches('\0').to_string();
+            return Ok(vec![s]);
+        }
+
+        if dims.len() == 2 {
+            // 2D character array - array of strings
+            let num_strings = dims[0].len();
+            let string_len = dims[1].len();
+
+            let chars_array = var.get(..).map_err(|e| {
+                ContactDetectorError::NetcdfError(format!("Failed to read string array: {}", e))
+            })?;
+            let chars: Vec<u8> = chars_array.into_iter().collect();
+
+            let mut strings = Vec::new();
+            for i in 0..num_strings {
+                let start = i * string_len;
+                let end = start + string_len;
+                let string_bytes = &chars[start..end];
+                let s = String::from_utf8_lossy(string_bytes)
+                    .trim_end_matches('\0')
+                    .trim()
+                    .to_string();
+                strings.push(s);
+            }
+
+            return Ok(strings);
+        }
+
+        Err(ContactDetectorError::ExodusReadError(format!(
+            "Unexpected string array dimensions: {}",
+            dims.len()
+        )))
     }
 }
 

@@ -20,10 +20,21 @@ struct JsonMesh {
     side_sets: HashMap<String, Vec<(usize, u8)>>,
 }
 
+/// Read a mesh from a JSON file
+///
+/// This is an alternative to Exodus II format, useful for testing or when
+/// HDF5/NetCDF libraries are not available.
+///
+/// # Arguments
+/// * `path` - Path to the JSON mesh file
+///
+/// # Returns
+/// A `Mesh` object containing all nodes, elements, and metadata
+///
+/// # Errors
+/// Returns an error if the file cannot be read or parsed as valid JSON
 pub fn read_json_mesh<P: AsRef<Path>>(path: P) -> Result<Mesh> {
-    let file = File::open(path.as_ref()).map_err(|e| {
-        ContactDetectorError::IoError(e)
-    })?;
+    let file = File::open(path.as_ref()).map_err(ContactDetectorError::IoError)?;
 
     let reader = BufReader::new(file);
     let json_mesh: JsonMesh = serde_json::from_reader(reader).map_err(|e| {
@@ -43,7 +54,7 @@ pub fn read_json_mesh<P: AsRef<Path>>(path: P) -> Result<Mesh> {
     mesh.elements = json_mesh
         .elements
         .into_iter()
-        .map(|nodes| HexElement::new(nodes))
+        .map(HexElement::new)
         .collect();
 
     // Copy metadata
@@ -54,6 +65,16 @@ pub fn read_json_mesh<P: AsRef<Path>>(path: P) -> Result<Mesh> {
     Ok(mesh)
 }
 
+/// Write a mesh to a JSON file
+///
+/// Serializes the mesh data structure to a human-readable JSON format.
+///
+/// # Arguments
+/// * `mesh` - The mesh to write
+/// * `path` - Output file path
+///
+/// # Errors
+/// Returns an error if the file cannot be created or written
 pub fn write_json_mesh<P: AsRef<Path>>(mesh: &Mesh, path: P) -> Result<()> {
     let json_mesh = JsonMesh {
         nodes: mesh.nodes.iter().map(|p| [p.x, p.y, p.z]).collect(),
@@ -89,8 +110,7 @@ mod tests {
             Point::new(0.0, 1.0, 1.0),
         ];
         mesh.elements = vec![HexElement::new([0, 1, 2, 3, 4, 5, 6, 7])];
-        mesh.element_blocks
-            .insert("Block1".to_string(), vec![0]);
+        mesh.element_blocks.insert("Block1".to_string(), vec![0]);
 
         let path = "/tmp/test_mesh.json";
         write_json_mesh(&mesh, path).unwrap();

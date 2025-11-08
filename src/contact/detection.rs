@@ -2,7 +2,9 @@
 
 use crate::contact::types::{ContactCriteria, ContactPair, ContactResults};
 use crate::error::Result;
-use crate::mesh::geometry::{angle_between_vectors, project_point_to_plane, signed_distance_to_plane};
+use crate::mesh::geometry::{
+    angle_between_vectors, project_point_to_plane, signed_distance_to_plane,
+};
 use crate::mesh::types::SurfaceMesh;
 use kiddo::KdTree;
 use std::collections::HashSet;
@@ -45,13 +47,7 @@ pub fn detect_contact_pairs(
             .par_iter()
             .enumerate()
             .map(|(face_a_idx, _face_a)| {
-                find_best_match(
-                    face_a_idx,
-                    surface_a,
-                    surface_b,
-                    &tree_b,
-                    criteria,
-                )
+                find_best_match(face_a_idx, surface_a, surface_b, &tree_b, criteria)
             })
             .collect()
     } else {
@@ -60,13 +56,7 @@ pub fn detect_contact_pairs(
             .iter()
             .enumerate()
             .map(|(face_a_idx, _face_a)| {
-                find_best_match(
-                    face_a_idx,
-                    surface_a,
-                    surface_b,
-                    &tree_b,
-                    criteria,
-                )
+                find_best_match(face_a_idx, surface_a, surface_b, &tree_b, criteria)
             })
             .collect()
     };
@@ -77,13 +67,7 @@ pub fn detect_contact_pairs(
         .iter()
         .enumerate()
         .map(|(face_a_idx, _face_a)| {
-            find_best_match(
-                face_a_idx,
-                surface_a,
-                surface_b,
-                &tree_b,
-                criteria,
-            )
+            find_best_match(face_a_idx, surface_a, surface_b, &tree_b, criteria)
         })
         .collect();
 
@@ -275,10 +259,7 @@ mod tests {
         let tree = build_face_kdtree(&surface_a);
 
         // Should have one entry
-        let nearest = tree.nearest_n::<kiddo::SquaredEuclidean>(
-            &[0.5, 0.5, 0.0],
-            1
-        );
+        let nearest = tree.nearest_n::<kiddo::SquaredEuclidean>(&[0.5, 0.5, 0.0], 1);
 
         assert_eq!(nearest.len(), 1);
         assert_eq!(nearest[0].item, 0); // Face index should be 0

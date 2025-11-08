@@ -46,7 +46,11 @@ impl ExodusReader {
 
         // Read element blocks
         self.read_element_blocks(&mut mesh)?;
-        log::debug!("Read {} elements in {} blocks", mesh.num_elements(), mesh.num_blocks());
+        log::debug!(
+            "Read {} elements in {} blocks",
+            mesh.num_elements(),
+            mesh.num_blocks()
+        );
 
         // Read node sets
         self.read_node_sets(&mut mesh)?;
@@ -62,12 +66,9 @@ impl ExodusReader {
 
     /// Get a dimension value from the file
     fn get_dimension(&self, name: &str) -> Result<usize> {
-        self.file
-            .dimension(name)
-            .map(|d| d.len())
-            .ok_or_else(|| {
-                ContactDetectorError::ExodusReadError(format!("Dimension '{}' not found", name))
-            })
+        self.file.dimension(name).map(|d| d.len()).ok_or_else(|| {
+            ContactDetectorError::ExodusReadError(format!("Dimension '{}' not found", name))
+        })
     }
 
     /// Read node coordinates
@@ -143,7 +144,11 @@ impl ExodusReader {
         // Check if this is a hex block
         let elem_type_upper = elem_type.to_uppercase();
         if !elem_type_upper.starts_with("HEX") && !elem_type_upper.starts_with("HEXAHEDRON") {
-            log::warn!("Skipping non-hexahedral block {} (type: {})", blk_id, elem_type);
+            log::warn!(
+                "Skipping non-hexahedral block {} (type: {})",
+                blk_id,
+                elem_type
+            );
             return Ok(());
         }
 
@@ -176,7 +181,9 @@ impl ExodusReader {
         let connectivity: Vec<i32> = connectivity_array.into_iter().collect();
 
         // Get block name
-        let block_name = self.get_block_name(blk_id).unwrap_or_else(|| format!("Block_{}", blk_id));
+        let block_name = self
+            .get_block_name(blk_id)
+            .unwrap_or_else(|| format!("Block_{}", blk_id));
 
         // Convert to hex elements
         let block_start_idx = mesh.elements.len();
@@ -186,7 +193,21 @@ impl ExodusReader {
 
             for i in 0..8 {
                 // Convert from 1-based to 0-based indexing
-                let node_id = connectivity[offset + i] as usize - 1;
+                let conn_idx = offset + i;
+                let node_value = *connectivity.get(conn_idx).ok_or_else(|| {
+                    ContactDetectorError::InvalidMeshTopology(format!(
+                        "Connectivity index {} out of bounds (block has {} values)",
+                        conn_idx,
+                        connectivity.len()
+                    ))
+                })?;
+
+                let node_id = (node_value as usize).checked_sub(1).ok_or_else(|| {
+                    ContactDetectorError::InvalidMeshTopology(format!(
+                        "Invalid node ID: {} (expected 1-based indexing, got 0)",
+                        node_value
+                    ))
+                })?;
                 node_ids[i] = node_id;
             }
 
@@ -233,9 +254,27 @@ impl ExodusReader {
                 let var_name = format!("node_ns{}", ns_id);
                 if let Some(var) = self.file.variable(&var_name) {
                     if let Ok(nodes_array) = var.get::<i32, _>(..) {
-                        // Convert from 1-based to 0-based indexing
-                        let node_indices: Vec<usize> = nodes_array.into_iter().map(|n| (n - 1) as usize).collect();
-                        mesh.node_sets.insert(name, node_indices);
+                        // Convert from 1-based to 0-based indexing with validation
+                        let node_indices: Result<Vec<usize>> = nodes_array
+                            .into_iter()
+                            .map(|n| {
+                                (n as usize).checked_sub(1).ok_or_else(|| {
+                                    ContactDetectorError::InvalidMeshTopology(format!(
+                                        "Invalid node ID in node set '{}': {} (expected 1-based indexing)",
+                                        name, n
+                                    ))
+                                })
+                            })
+                            .collect();
+
+                        match node_indices {
+                            Ok(indices) => {
+                                mesh.node_sets.insert(name, indices);
+                            }
+                            Err(e) => {
+                                log::warn!("Skipping node set '{}': {}", name, e);
+                            }
+                        }
                     }
                 }
             }
@@ -268,14 +307,35 @@ impl ExodusReader {
                 let elem_var = format!("elem_ss{}", ss_id);
                 let side_var = format!("side_ss{}", ss_id);
 
-                if let (Some(elem_v), Some(side_v)) = (self.file.variable(&elem_var), self.file.variable(&side_var)) {
-                    if let (Ok(elems_array), Ok(sides_array)) = (elem_v.get::<i32, _>(..), side_v.get::<i32, _>(..)) {
-                        let side_list: Vec<(usize, u8)> = elems_array
+                if let (Some(elem_v), Some(side_v)) =
+                    (self.file.variable(&elem_var), self.file.variable(&side_var))
+                {
+                    if let (Ok(elems_array), Ok(sides_array)) =
+                        (elem_v.get::<i32, _>(..), side_v.get::<i32, _>(..))
+                    {
+                        // Convert from 1-based to 0-based indexing with validation
+                        let side_list: Result<Vec<(usize, u8)>> = elems_array
                             .into_iter()
                             .zip(sides_array.into_iter())
-                            .map(|(e, s)| ((e - 1) as usize, s as u8))
+                            .map(|(e, s)| {
+                                let elem_id = (e as usize).checked_sub(1).ok_or_else(|| {
+                                    ContactDetectorError::InvalidMeshTopology(format!(
+                                        "Invalid element ID in side set '{}': {} (expected 1-based indexing)",
+                                        name, e
+                                    ))
+                                })?;
+                                Ok((elem_id, s as u8))
+                            })
                             .collect();
-                        mesh.side_sets.insert(name, side_list);
+
+                        match side_list {
+                            Ok(list) => {
+                                mesh.side_sets.insert(name, list);
+                            }
+                            Err(e) => {
+                                log::warn!("Skipping side set '{}': {}", name, e);
+                            }
+                        }
                     }
                 }
             }
@@ -335,7 +395,9 @@ impl ExodusReader {
                 ContactDetectorError::NetcdfError(format!("Failed to read string array: {}", e))
             })?;
             let chars: Vec<u8> = chars_array.into_iter().collect();
-            let s = String::from_utf8_lossy(&chars).trim_end_matches('\0').to_string();
+            let s = String::from_utf8_lossy(&chars)
+                .trim_end_matches('\0')
+                .to_string();
             return Ok(vec![s]);
         }
 

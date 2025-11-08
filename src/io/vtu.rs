@@ -116,7 +116,6 @@ pub fn write_surface_with_contact_metadata(
     _metrics: &crate::contact::SurfaceMetrics,
     output_path: &Path,
 ) -> Result<()> {
-
     log::info!(
         "Writing surface '{}' with contact metadata to {:?}",
         surface.part_name,
@@ -241,7 +240,10 @@ pub fn write_surface_with_contact_metadata(
     vtk.export(output_path)
         .map_err(|e| ContactDetectorError::VtkError(format!("Failed to write VTU file: {}", e)))?;
 
-    log::info!("Successfully wrote VTU file with contact metadata to {:?}", output_path);
+    log::info!(
+        "Successfully wrote VTU file with contact metadata to {:?}",
+        output_path
+    );
 
     Ok(())
 }

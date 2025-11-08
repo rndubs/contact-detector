@@ -194,7 +194,9 @@ pub fn generate_parallel_surfaces(
     // Update block name for mesh B
     let elements_b: Vec<usize> = (0..mesh_b.num_elements()).collect();
     mesh_b.element_blocks.clear();
-    mesh_b.element_blocks.insert("Block2".to_string(), elements_b);
+    mesh_b
+        .element_blocks
+        .insert("Block2".to_string(), elements_b);
 
     (mesh_a, mesh_b)
 }
@@ -222,7 +224,7 @@ pub fn calculate_grid_dimensions(target_elements: usize) -> (usize, usize, usize
 
 #[cfg(test)]
 mod tests {
-    use super::{calculate_grid_dimensions, generate_hex_grid, generate_parallel_surfaces};
+    
 
     #[test]
     fn test_generate_small_grid() {

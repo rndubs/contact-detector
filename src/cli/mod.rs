@@ -1,8 +1,27 @@
 //! CLI commands and interface
+//!
+//! This module defines the command-line interface structure using clap.
+//! It provides commands for mesh inspection, surface extraction, and contact detection.
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Command-line interface for the contact detector application
+///
+/// Provides commands for mesh inspection, surface extraction, and contact pair detection
+/// for hexahedral finite element meshes.
+///
+/// # Example
+/// ```bash
+/// # Display mesh information
+/// contact-detector info mesh.exo
+///
+/// # Extract surface
+/// contact-detector skin mesh.exo -o surface.vtu
+///
+/// # Detect contact pairs
+/// contact-detector contact mesh.exo --part-a Block1 --part-b Block2 -o result.vtu
+/// ```
 #[derive(Parser, Debug)]
 #[command(name = "contact-detector")]
 #[command(author, version, about, long_about = None)]
@@ -21,6 +40,10 @@ pub struct Cli {
     pub debug: bool,
 }
 
+/// Available subcommands for the contact detector CLI
+///
+/// Each command provides specific functionality for working with hexahedral meshes
+/// and detecting contact pairs between surfaces.
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Display information about an Exodus mesh file

@@ -44,7 +44,7 @@ fn build_face_adjacency(mesh: &Mesh) -> Result<HashMap<QuadFace, Vec<usize>>> {
             let canonical_face = face.canonical();
             adjacency
                 .entry(canonical_face)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(elem_idx);
         }
     }
@@ -97,7 +97,7 @@ fn group_by_block(
 
         block_faces
             .entry(block_name)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(*face);
     }
 

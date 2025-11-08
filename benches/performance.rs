@@ -64,16 +64,12 @@ fn benchmark_surface_extraction(c: &mut Criterion) {
         let mesh = generate_hex_grid(nx, ny, nz, 1.0);
 
         group.throughput(Throughput::Elements(actual_elements as u64));
-        group.bench_with_input(
-            BenchmarkId::from_parameter(name),
-            &mesh,
-            |b, mesh| {
-                b.iter(|| {
-                    let surfaces = extract_surface(black_box(mesh)).unwrap();
-                    black_box(surfaces);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(name), &mesh, |b, mesh| {
+            b.iter(|| {
+                let surfaces = extract_surface(black_box(mesh)).unwrap();
+                black_box(surfaces);
+            });
+        });
     }
 
     group.finish();
@@ -131,34 +127,24 @@ fn benchmark_kdtree(c: &mut Criterion) {
         let query_point = [50.0, 50.0, 50.0];
         let radius = 5.0;
 
-        group.bench_with_input(
-            BenchmarkId::new("radius_query", name),
-            &tree,
-            |b, tree| {
-                b.iter(|| {
-                    let results = tree.within::<kiddo::SquaredEuclidean>(
-                        black_box(&query_point),
-                        black_box(radius * radius),
-                    );
-                    black_box(results);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("radius_query", name), &tree, |b, tree| {
+            b.iter(|| {
+                let results = tree.within::<kiddo::SquaredEuclidean>(
+                    black_box(&query_point),
+                    black_box(radius * radius),
+                );
+                black_box(results);
+            });
+        });
 
         // Benchmark nearest neighbor queries
-        group.bench_with_input(
-            BenchmarkId::new("nearest_query", name),
-            &tree,
-            |b, tree| {
-                b.iter(|| {
-                    let results = tree.nearest_n::<kiddo::SquaredEuclidean>(
-                        black_box(&query_point),
-                        black_box(10),
-                    );
-                    black_box(results);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("nearest_query", name), &tree, |b, tree| {
+            b.iter(|| {
+                let results = tree
+                    .nearest_n::<kiddo::SquaredEuclidean>(black_box(&query_point), black_box(10));
+                black_box(results);
+            });
+        });
     }
 
     group.finish();
@@ -174,7 +160,7 @@ fn benchmark_contact_detection(c: &mut Criterion) {
         ("100_faces", 10, 10), // 100 faces per surface
         ("1K_faces", 32, 32),  // ~1K faces per surface
         ("10K_faces", 100, 100), // 10K faces per surface
-        // ("100K_faces", 316, 316), // ~100K faces per surface
+                               // ("100K_faces", 316, 316), // ~100K faces per surface
     ];
 
     for (name, nx, ny) in scales {
@@ -224,8 +210,8 @@ fn benchmark_pipeline(c: &mut Criterion) {
         ("100_elements", 10, 10), // 100 elements per mesh
         ("1K_elements", 32, 32),  // ~1K elements per mesh
         ("10K_elements", 100, 100), // 10K elements per mesh
-        // Uncomment for larger scale testing
-        // ("100K_elements", 316, 316), // ~100K elements per mesh
+                                  // Uncomment for larger scale testing
+                                  // ("100K_elements", 316, 316), // ~100K elements per mesh
     ];
 
     for (name, nx, ny) in scales {
@@ -279,9 +265,16 @@ fn benchmark_1m_target(c: &mut Criterion) {
     let (nx, ny, nz) = calculate_grid_dimensions(1_000_000);
     let actual_elements = nx * ny * nz;
 
-    println!("Generating mesh with {} elements ({}x{}x{})", actual_elements, nx, ny, nz);
+    println!(
+        "Generating mesh with {} elements ({}x{}x{})",
+        actual_elements, nx, ny, nz
+    );
     let mesh = generate_hex_grid(nx, ny, nz, 1.0);
-    println!("Mesh generated with {} nodes, {} elements", mesh.num_nodes(), mesh.num_elements());
+    println!(
+        "Mesh generated with {} nodes, {} elements",
+        mesh.num_nodes(),
+        mesh.num_elements()
+    );
 
     group.throughput(Throughput::Elements(actual_elements as u64));
     group.bench_function("surface_extraction_1M", |b| {

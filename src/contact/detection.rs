@@ -261,7 +261,10 @@ mod tests {
         let tree = build_face_kdtree(&surface_a);
 
         // Should have one entry
-        let nearest = tree.nearest_n::<kiddo::SquaredEuclidean>(&[0.5, 0.5, 0.0], 1);
+        let nearest = tree.nearest_n::<kiddo::SquaredEuclidean>(
+            &[0.5, 0.5, 0.0],
+            std::num::NonZero::new(1).unwrap(),
+        );
 
         assert_eq!(nearest.len(), 1);
         assert_eq!(nearest[0].item, 0); // Face index should be 0

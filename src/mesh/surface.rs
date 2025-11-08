@@ -5,6 +5,9 @@ use crate::mesh::geometry::{compute_face_area, compute_face_centroid, compute_fa
 use crate::mesh::types::{Mesh, Point, QuadFace, SurfaceMesh};
 use std::collections::HashMap;
 
+#[cfg(feature = "parallel")]
+use rayon::prelude::*;
+
 /// Extract surface mesh from a volume mesh
 /// Returns one SurfaceMesh per element block (part)
 pub fn extract_surface(mesh: &Mesh) -> Result<Vec<SurfaceMesh>> {
@@ -120,18 +123,52 @@ fn build_surface_mesh(
     faces: Vec<QuadFace>,
     nodes: &[Point],
 ) -> Result<SurfaceMesh> {
-    let num_faces = faces.len();
+    // Threshold for parallelization (below this, overhead isn't worth it)
+    const PARALLEL_THRESHOLD: usize = 5000;
 
-    let mut face_normals = Vec::with_capacity(num_faces);
-    let mut face_centroids = Vec::with_capacity(num_faces);
-    let mut face_areas = Vec::with_capacity(num_faces);
+    // Compute geometric properties for each face (parallelized for large datasets)
+    #[cfg(feature = "parallel")]
+    let geometric_props: Result<Vec<_>> = if faces.len() >= PARALLEL_THRESHOLD {
+        faces
+            .par_iter()
+            .map(|face| {
+                let normal = compute_face_normal(face, nodes)?;
+                let centroid = compute_face_centroid(face, nodes)?;
+                let area = compute_face_area(face, nodes)?;
+                Ok((normal, centroid, area))
+            })
+            .collect()
+    } else {
+        faces
+            .iter()
+            .map(|face| {
+                let normal = compute_face_normal(face, nodes)?;
+                let centroid = compute_face_centroid(face, nodes)?;
+                let area = compute_face_area(face, nodes)?;
+                Ok((normal, centroid, area))
+            })
+            .collect()
+    };
 
-    // Compute geometric properties for each face
-    for face in &faces {
-        let normal = compute_face_normal(face, nodes)?;
-        let centroid = compute_face_centroid(face, nodes)?;
-        let area = compute_face_area(face, nodes)?;
+    #[cfg(not(feature = "parallel"))]
+    let geometric_props: Result<Vec<_>> = faces
+        .iter()
+        .map(|face| {
+            let normal = compute_face_normal(face, nodes)?;
+            let centroid = compute_face_centroid(face, nodes)?;
+            let area = compute_face_area(face, nodes)?;
+            Ok((normal, centroid, area))
+        })
+        .collect();
 
+    let props = geometric_props?;
+
+    // Unzip the results into separate vectors
+    let mut face_normals = Vec::with_capacity(props.len());
+    let mut face_centroids = Vec::with_capacity(props.len());
+    let mut face_areas = Vec::with_capacity(props.len());
+
+    for (normal, centroid, area) in props {
         face_normals.push(normal);
         face_centroids.push(centroid);
         face_areas.push(area);

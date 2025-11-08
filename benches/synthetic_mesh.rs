@@ -1,7 +1,7 @@
-//! Synthetic mesh generation utilities for benchmarking
-//!
-//! This module provides functions to generate hexahedral meshes of various sizes
-//! for performance testing, since we only have a 3.7K element test file.
+// Synthetic mesh generation utilities for benchmarking
+//
+// This module provides functions to generate hexahedral meshes of various sizes
+// for performance testing, since we only have a 3.7K element test file.
 
 use contact_detector::mesh::types::{HexElement, Mesh, Point};
 use std::collections::HashMap;
@@ -224,7 +224,7 @@ pub fn calculate_grid_dimensions(target_elements: usize) -> (usize, usize, usize
 
 #[cfg(test)]
 mod tests {
-    
+    use super::{calculate_grid_dimensions, generate_hex_grid, generate_parallel_surfaces};
 
     #[test]
     fn test_generate_small_grid() {

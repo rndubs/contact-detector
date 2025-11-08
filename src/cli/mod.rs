@@ -6,6 +6,26 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Parse a VTK version string (e.g., "2.2" or "4.2") into a tuple
+pub fn parse_vtk_version(version_str: &str) -> Result<(u8, u8), String> {
+    let parts: Vec<&str> = version_str.split('.').collect();
+    if parts.len() != 2 {
+        return Err(format!(
+            "Invalid VTK version format '{}'. Expected format: 'X.Y' (e.g., '2.2' or '4.2')",
+            version_str
+        ));
+    }
+
+    let major = parts[0]
+        .parse::<u8>()
+        .map_err(|_| format!("Invalid major version '{}'", parts[0]))?;
+    let minor = parts[1]
+        .parse::<u8>()
+        .map_err(|_| format!("Invalid minor version '{}'", parts[1]))?;
+
+    Ok((major, minor))
+}
+
 /// Command-line interface for the contact detector application
 ///
 /// Provides commands for mesh inspection, surface extraction, and contact pair detection
@@ -38,6 +58,10 @@ pub struct Cli {
     /// Enable debug logging
     #[arg(short, long, global = true)]
     pub debug: bool,
+
+    /// VTK file format version (e.g., "2.2" for ParaView 6.0.1 compatibility, "4.2" for latest)
+    #[arg(long, global = true, value_name = "VERSION")]
+    pub vtk_version: Option<String>,
 }
 
 /// Available subcommands for the contact detector CLI

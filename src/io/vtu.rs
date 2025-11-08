@@ -5,13 +5,24 @@ use crate::mesh::types::{Mesh, SurfaceMesh};
 use std::path::Path;
 use vtkio::model::*;
 
+/// Default VTK file format version (2.2 for broad compatibility)
+/// This version is compatible with ParaView 6.0.1 and most VTK-based tools
+pub const DEFAULT_VTK_VERSION: (u8, u8) = (2, 2);
+
 /// Write a surface mesh to a VTU file
-pub fn write_surface_to_vtu(surface: &SurfaceMesh, output_path: &Path) -> Result<()> {
+pub fn write_surface_to_vtu(
+    surface: &SurfaceMesh,
+    output_path: &Path,
+    vtk_version: Option<(u8, u8)>,
+) -> Result<()> {
+    let version = vtk_version.unwrap_or(DEFAULT_VTK_VERSION);
     log::info!(
-        "Writing surface '{}' with {} faces to {:?}",
+        "Writing surface '{}' with {} faces to {:?} (VTK version {}.{})",
         surface.part_name,
         surface.num_faces(),
-        output_path
+        output_path,
+        version.0,
+        version.1
     );
 
     // Create point array from nodes
@@ -75,7 +86,7 @@ pub fn write_surface_to_vtu(surface: &SurfaceMesh, output_path: &Path) -> Result
 
     // Create the Vtk model
     let vtk = Vtk {
-        version: Version::new((4, 2)),
+        version: Version::new(version),
         title: format!("Surface mesh: {}", surface.part_name),
         byte_order: ByteOrder::LittleEndian,
         data: DataSet::UnstructuredGrid {
@@ -96,14 +107,18 @@ pub fn write_surface_to_vtu(surface: &SurfaceMesh, output_path: &Path) -> Result
 
 /// Write multiple surface meshes to separate VTU files
 /// Each surface is written to <output_dir>/<part_name>.vtu
-pub fn write_surfaces_to_vtu(surfaces: &[SurfaceMesh], output_dir: &Path) -> Result<()> {
+pub fn write_surfaces_to_vtu(
+    surfaces: &[SurfaceMesh],
+    output_dir: &Path,
+    vtk_version: Option<(u8, u8)>,
+) -> Result<()> {
     // Create output directory if it doesn't exist
     std::fs::create_dir_all(output_dir)?;
 
     for surface in surfaces {
         let filename = format!("{}.vtu", sanitize_filename(&surface.part_name));
         let output_path = output_dir.join(filename);
-        write_surface_to_vtu(surface, &output_path)?;
+        write_surface_to_vtu(surface, &output_path, vtk_version)?;
     }
 
     Ok(())
@@ -115,11 +130,15 @@ pub fn write_surface_with_contact_metadata(
     results: &crate::contact::ContactResults,
     _metrics: &crate::contact::SurfaceMetrics,
     output_path: &Path,
+    vtk_version: Option<(u8, u8)>,
 ) -> Result<()> {
+    let version = vtk_version.unwrap_or(DEFAULT_VTK_VERSION);
     log::info!(
-        "Writing surface '{}' with contact metadata to {:?}",
+        "Writing surface '{}' with contact metadata to {:?} (VTK version {}.{})",
         surface.part_name,
-        output_path
+        output_path,
+        version.0,
+        version.1
     );
 
     // Create point array from nodes
@@ -226,7 +245,7 @@ pub fn write_surface_with_contact_metadata(
 
     // Create the Vtk model
     let vtk = Vtk {
-        version: Version::new((4, 2)),
+        version: Version::new(version),
         title: format!("Surface mesh with contact data: {}", surface.part_name),
         byte_order: ByteOrder::LittleEndian,
         data: DataSet::UnstructuredGrid {
@@ -264,11 +283,14 @@ fn sanitize_filename(name: &str) -> String {
 /// Write a full mesh (with hex elements) to a VTK file
 ///
 /// This is useful for visualizing synthetic meshes or full 3D meshes.
-pub fn write_vtk(mesh: &Mesh, output_path: &Path) -> Result<()> {
+pub fn write_vtk(mesh: &Mesh, output_path: &Path, vtk_version: Option<(u8, u8)>) -> Result<()> {
+    let version = vtk_version.unwrap_or(DEFAULT_VTK_VERSION);
     log::info!(
-        "Writing mesh with {} elements to {:?}",
+        "Writing mesh with {} elements to {:?} (VTK version {}.{})",
         mesh.num_elements(),
-        output_path
+        output_path,
+        version.0,
+        version.1
     );
 
     // Create point array from nodes
@@ -307,7 +329,7 @@ pub fn write_vtk(mesh: &Mesh, output_path: &Path) -> Result<()> {
 
     // Create the Vtk model
     let vtk = Vtk {
-        version: Version::new((4, 2)),
+        version: Version::new(version),
         title: "Hexahedral mesh".to_string(),
         byte_order: ByteOrder::LittleEndian,
         data: DataSet::UnstructuredGrid {
@@ -364,7 +386,7 @@ mod tests {
         let temp_dir = std::env::temp_dir();
         let output_path = temp_dir.join("test_surface.vtu");
 
-        let result = write_surface_to_vtu(&surface, &output_path);
+        let result = write_surface_to_vtu(&surface, &output_path, None);
         assert!(result.is_ok());
 
         // Clean up

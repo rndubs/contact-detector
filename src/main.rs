@@ -23,6 +23,18 @@ fn main() -> Result<()> {
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
 
+    // Parse VTK version if provided
+    let vtk_version = if let Some(ref version_str) = cli.vtk_version {
+        Some(cli::parse_vtk_version(version_str).map_err(|e| {
+            contact_detector::ContactDetectorError::ConfigError(format!(
+                "Failed to parse VTK version: {}",
+                e
+            ))
+        })?)
+    } else {
+        None
+    };
+
     // Dispatch to command handlers
     match cli.command {
         Commands::Info { input } => cmd_info(input),
@@ -30,7 +42,7 @@ fn main() -> Result<()> {
             input,
             output,
             part,
-        } => cmd_skin(input, output, part),
+        } => cmd_skin(input, output, part, vtk_version),
         Commands::Contact {
             input,
             part_a,
@@ -47,13 +59,14 @@ fn main() -> Result<()> {
             max_penetration,
             max_angle,
             output,
+            vtk_version,
         ),
         Commands::Analyze {
             input,
             pairs,
             config,
             output,
-        } => cmd_analyze(input, pairs, config, output),
+        } => cmd_analyze(input, pairs, config, output, vtk_version),
         Commands::AutoContact {
             input,
             max_gap,
@@ -61,7 +74,15 @@ fn main() -> Result<()> {
             max_angle,
             min_pairs,
             output,
-        } => cmd_auto_contact(input, max_gap, max_penetration, max_angle, min_pairs, output),
+        } => cmd_auto_contact(
+            input,
+            max_gap,
+            max_penetration,
+            max_angle,
+            min_pairs,
+            output,
+            vtk_version,
+        ),
     }
 }
 
@@ -135,6 +156,7 @@ fn cmd_skin(
     input: std::path::PathBuf,
     output: std::path::PathBuf,
     part: Option<String>,
+    vtk_version: Option<(u8, u8)>,
 ) -> Result<()> {
     use contact_detector::io::{write_surface_to_vtu, write_surfaces_to_vtu};
     use contact_detector::mesh::extract_surface;
@@ -186,12 +208,12 @@ fn cmd_skin(
     if surfaces_to_write.len() == 1 {
         // Single surface - write directly to output file
         if let Some(surface) = surfaces_to_write.first() {
-            write_surface_to_vtu(surface, &output)?;
+            write_surface_to_vtu(surface, &output, vtk_version)?;
             println!("Surface extracted and written to: {}", output.display());
         }
     } else {
         // Multiple surfaces - output should be a directory
-        write_surfaces_to_vtu(&surfaces_to_write, &output)?;
+        write_surfaces_to_vtu(&surfaces_to_write, &output, vtk_version)?;
         println!(
             "Extracted {} surfaces to directory: {}",
             surfaces_to_write.len(),
@@ -220,6 +242,7 @@ fn cmd_contact(
     max_penetration: f64,
     max_angle: f64,
     output: std::path::PathBuf,
+    vtk_version: Option<(u8, u8)>,
 ) -> Result<()> {
     use contact_detector::contact::{detect_contact_pairs, ContactCriteria};
     use contact_detector::mesh::extract_surface;
@@ -287,7 +310,7 @@ fn cmd_contact(
     metrics_b.print_summary(&surface_b.part_name);
 
     // Write surface A with contact metadata
-    write_surface_with_contact_metadata(surface_a, &results, &metrics_a, &output)?;
+    write_surface_with_contact_metadata(surface_a, &results, &metrics_a, &output, vtk_version)?;
 
     println!(
         "\nWrote surface with contact metadata to: {}",
@@ -302,6 +325,7 @@ fn cmd_analyze(
     pairs: String,
     config_file: Option<std::path::PathBuf>,
     output: std::path::PathBuf,
+    vtk_version: Option<(u8, u8)>,
 ) -> Result<()> {
     use contact_detector::config::AnalysisConfig;
     use contact_detector::contact::{detect_contact_pairs, SurfaceMetrics};
@@ -412,7 +436,7 @@ fn cmd_analyze(
         let output_path = output.join(&output_filename);
 
         // Write results
-        write_surface_with_contact_metadata(surface_a, &results, &metrics_a, &output_path)?;
+        write_surface_with_contact_metadata(surface_a, &results, &metrics_a, &output_path, vtk_version)?;
 
         // Print brief summary
         println!(
@@ -462,6 +486,7 @@ fn cmd_auto_contact(
     max_angle: f64,
     min_pairs: usize,
     output: std::path::PathBuf,
+    vtk_version: Option<(u8, u8)>,
 ) -> Result<()> {
     use contact_detector::contact::{detect_contact_pairs, ContactCriteria, SurfaceMetrics};
     use contact_detector::io::write_surface_with_contact_metadata;
@@ -647,6 +672,7 @@ fn cmd_auto_contact(
                 results,
                 metrics_a,
                 &output_path,
+                vtk_version,
             )?;
 
             println!("  Output:          {}", output_filename);

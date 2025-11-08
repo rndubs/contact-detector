@@ -8,14 +8,31 @@ High-performance hexahedral mesh contact pair detection and surface extraction t
 - **Contact Detection**: Automatically identify surface contact pairs based on configurable criteria
 - **Metric Computation**: Calculate distances, angles, and other metrics for contact pairs
 - **Fast Processing**: Process 1M+ element meshes in under 30 seconds
-- **Exodus II Support**: Read standard Exodus II mesh files
+- **Exodus II Support**: Read standard Exodus II mesh files (built-in, no system libraries required)
 - **VTK/VTU Export**: Export results with metadata for visualization
+
+## Prerequisites
+
+- Rust toolchain (1.70+): https://rustup.rs/
+- CMake and C++ compiler (for building HDF5/NetCDF from source)
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install cmake g++
+```
+
+**macOS:**
+```bash
+brew install cmake
+```
 
 ## Installation
 
 ```bash
 cargo build --release
 ```
+
+*Note: First build takes ~3-5 minutes as it compiles HDF5 and NetCDF from source. Subsequent builds are faster.*
 
 ## Usage
 

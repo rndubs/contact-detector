@@ -110,8 +110,16 @@ impl SurfaceMetrics {
         println!("{}", "=".repeat(60));
         println!();
         println!("  Total Area:      {:.6}", self.total_area);
-        println!("  Paired Area:     {:.6}  ({:.1}%)", self.paired_area, self.paired_area / self.total_area * 100.0);
-        println!("  Unpaired Area:   {:.6}  ({:.1}%)", self.unpaired_area, self.unpaired_area / self.total_area * 100.0);
+        println!(
+            "  Paired Area:     {:.6}  ({:.1}%)",
+            self.paired_area,
+            self.paired_area / self.total_area * 100.0
+        );
+        println!(
+            "  Unpaired Area:   {:.6}  ({:.1}%)",
+            self.unpaired_area,
+            self.unpaired_area / self.total_area * 100.0
+        );
         println!();
         println!("  Contact Pairs:   {}", self.num_pairs);
         println!("  Unpaired Faces:  {}", self.num_unpaired);
@@ -142,10 +150,7 @@ mod tests {
     fn make_test_data() -> (ContactResults, SurfaceMesh) {
         let surface = SurfaceMesh {
             part_name: "TestSurface".to_string(),
-            faces: vec![
-                QuadFace::new([0, 1, 2, 3]),
-                QuadFace::new([4, 5, 6, 7]),
-            ],
+            faces: vec![QuadFace::new([0, 1, 2, 3]), QuadFace::new([4, 5, 6, 7])],
             face_normals: vec![Vec3::new(0.0, 0.0, 1.0), Vec3::new(0.0, 0.0, 1.0)],
             face_centroids: vec![Point::new(0.5, 0.5, 0.0), Point::new(1.5, 0.5, 0.0)],
             face_areas: vec![1.0, 2.0],

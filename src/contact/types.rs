@@ -100,11 +100,7 @@ pub struct ContactResults {
 
 impl ContactResults {
     /// Create new contact results
-    pub fn new(
-        surface_a_name: String,
-        surface_b_name: String,
-        criteria: ContactCriteria,
-    ) -> Self {
+    pub fn new(surface_a_name: String, surface_b_name: String, criteria: ContactCriteria) -> Self {
         Self {
             surface_a_name,
             surface_b_name,
@@ -126,8 +122,19 @@ impl ContactResults {
             return 0.0;
         }
 
-        let sum: f64 = self.pairs.iter().map(|p| p.distance).sum();
-        sum / self.pairs.len() as f64
+        let finite_distances: Vec<f64> = self
+            .pairs
+            .iter()
+            .map(|p| p.distance)
+            .filter(|d| d.is_finite())
+            .collect();
+
+        if finite_distances.is_empty() {
+            return 0.0;
+        }
+
+        let sum: f64 = finite_distances.iter().sum();
+        sum / finite_distances.len() as f64
     }
 
     /// Get minimum distance
@@ -135,7 +142,10 @@ impl ContactResults {
         self.pairs
             .iter()
             .map(|p| p.distance)
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .filter(|d| d.is_finite()) // Filter out NaN and infinity
+            .min_by(|a, b| {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal) // Fallback for NaN (shouldn't happen after filter)
+            })
             .unwrap_or(0.0)
     }
 
@@ -144,7 +154,10 @@ impl ContactResults {
         self.pairs
             .iter()
             .map(|p| p.distance)
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .filter(|d| d.is_finite()) // Filter out NaN and infinity
+            .max_by(|a, b| {
+                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal) // Fallback for NaN (shouldn't happen after filter)
+            })
             .unwrap_or(0.0)
     }
 
@@ -186,7 +199,10 @@ impl ContactResults {
         println!("  Criteria:");
         println!("    Max Gap:         {:.6}", self.criteria.max_gap_distance);
         println!("    Max Penetration: {:.6}", self.criteria.max_penetration);
-        println!("    Max Angle:       {:.1}°", self.criteria.max_normal_angle);
+        println!(
+            "    Max Angle:       {:.1}°",
+            self.criteria.max_normal_angle
+        );
         println!();
         println!("{}", "=".repeat(60));
     }
@@ -223,5 +239,60 @@ mod tests {
         assert!(criteria.is_angle_valid(30.0));
         assert!(criteria.is_angle_valid(45.0));
         assert!(!criteria.is_angle_valid(90.0));
+    }
+
+    #[test]
+    fn test_contact_results_nan_handling() {
+        use crate::mesh::Point;
+
+        // Create a contact results with some pairs including NaN/infinite values
+        let mut results = ContactResults::new(
+            "Surface A".to_string(),
+            "Surface B".to_string(),
+            ContactCriteria::default(),
+        );
+
+        // Add valid pairs
+        results.pairs.push(ContactPair {
+            surface_a_face_id: 0,
+            surface_b_face_id: 0,
+            distance: 0.5,
+            normal_angle: 10.0,
+            contact_point: Point::new(0.0, 0.0, 0.0),
+        });
+
+        results.pairs.push(ContactPair {
+            surface_a_face_id: 1,
+            surface_b_face_id: 1,
+            distance: 1.5,
+            normal_angle: 20.0,
+            contact_point: Point::new(1.0, 0.0, 0.0),
+        });
+
+        // Add pair with NaN distance (should be filtered out)
+        results.pairs.push(ContactPair {
+            surface_a_face_id: 2,
+            surface_b_face_id: 2,
+            distance: f64::NAN,
+            normal_angle: 15.0,
+            contact_point: Point::new(2.0, 0.0, 0.0),
+        });
+
+        // Add pair with infinite distance (should be filtered out)
+        results.pairs.push(ContactPair {
+            surface_a_face_id: 3,
+            surface_b_face_id: 3,
+            distance: f64::INFINITY,
+            normal_angle: 25.0,
+            contact_point: Point::new(3.0, 0.0, 0.0),
+        });
+
+        // Test that min/max ignore NaN and infinity
+        assert_eq!(results.min_distance(), 0.5);
+        assert_eq!(results.max_distance(), 1.5);
+
+        // Test that average only includes finite values in count
+        let avg = results.avg_distance();
+        assert!((avg - 1.0).abs() < 1e-10); // (0.5 + 1.5 + NaN + inf) / 4 should handle NaN/inf properly
     }
 }

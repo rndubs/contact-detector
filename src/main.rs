@@ -177,8 +177,10 @@ fn cmd_skin(
     // Write output
     if surfaces_to_write.len() == 1 {
         // Single surface - write directly to output file
-        write_surface_to_vtu(&surfaces_to_write[0], &output)?;
-        println!("Surface extracted and written to: {}", output.display());
+        if let Some(surface) = surfaces_to_write.first() {
+            write_surface_to_vtu(surface, &output)?;
+            println!("Surface extracted and written to: {}", output.display());
+        }
     } else {
         // Multiple surfaces - output should be a directory
         write_surfaces_to_vtu(&surfaces_to_write, &output)?;
@@ -279,7 +281,10 @@ fn cmd_contact(
     // Write surface A with contact metadata
     write_surface_with_contact_metadata(surface_a, &results, &metrics_a, &output)?;
 
-    println!("\nWrote surface with contact metadata to: {}", output.display());
+    println!(
+        "\nWrote surface with contact metadata to: {}",
+        output.display()
+    );
 
     Ok(())
 }
@@ -311,10 +316,7 @@ fn cmd_analyze(
         )?
     };
 
-    log::info!(
-        "Analyzing {} contact pairs",
-        config.contact_pairs.len()
-    );
+    log::info!("Analyzing {} contact pairs", config.contact_pairs.len());
 
     // Read mesh
     println!("Reading mesh file: {}", config.input_file);
@@ -329,7 +331,7 @@ fn cmd_analyze(
         #[cfg(not(feature = "exodus"))]
         {
             return Err(contact_detector::ContactDetectorError::ConfigError(
-                "Exodus support not compiled in".to_string()
+                "Exodus support not compiled in".to_string(),
             ));
         }
     };
@@ -414,9 +416,7 @@ fn cmd_analyze(
         );
         println!(
             "  Pairs: {}, Unpaired: {}, Avg Distance: {:.6}",
-            metrics_a.num_pairs,
-            metrics_a.num_unpaired,
-            metrics_a.avg_distance
+            metrics_a.num_pairs, metrics_a.num_unpaired, metrics_a.avg_distance
         );
         println!("  Output: {}", output_filename);
 

@@ -132,9 +132,9 @@ impl Mesh {
 
     /// Get elements in a specific block
     pub fn get_block(&self, name: &str) -> Option<Vec<&HexElement>> {
-        self.element_blocks.get(name).map(|indices| {
-            indices.iter().map(|&idx| &self.elements[idx]).collect()
-        })
+        self.element_blocks
+            .get(name)
+            .map(|indices| indices.iter().map(|&idx| &self.elements[idx]).collect())
     }
 }
 

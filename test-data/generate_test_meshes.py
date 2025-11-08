@@ -19,7 +19,7 @@ except ImportError:
     sys.exit(1)
 
 
-def create_exodus_file(filename, num_dim, num_nodes, num_elem, num_el_blk):
+def create_exodus_file(filename, num_dim, num_nodes, num_elem, num_el_blk, num_side_sets=0):
     """Create a basic Exodus II file structure."""
     nc = Dataset(filename, 'w', format='NETCDF3_CLASSIC')
 
@@ -54,7 +54,48 @@ def create_exodus_file(filename, num_dim, num_nodes, num_elem, num_el_blk):
     eb_prop1 = nc.createVariable('eb_prop1', 'i4', ('num_el_blk',))
     eb_prop1.setncattr('name', 'ID')
 
+    # Create side set structures if requested
+    if num_side_sets > 0:
+        nc.createDimension('num_side_sets', num_side_sets)
+        ss_status = nc.createVariable('ss_status', 'i4', ('num_side_sets',))
+        ss_prop1 = nc.createVariable('ss_prop1', 'i4', ('num_side_sets',))
+        ss_prop1.setncattr('name', 'ID')
+
     return nc
+
+
+def add_sideset(nc, sideset_id, sideset_num, elem_list, side_list):
+    """
+    Add a sideset to an Exodus file.
+
+    Parameters:
+    - nc: netCDF4 Dataset object
+    - sideset_id: ID number for the sideset (1-based)
+    - sideset_num: Sequential number for this sideset (1-based)
+    - elem_list: List of element IDs (1-based) in the sideset
+    - side_list: List of local side numbers (1-based) for each element
+
+    For HEX8 elements, side numbering convention:
+    - Side 1: bottom face (nodes 1,2,3,4)
+    - Side 2: front face (nodes 1,2,6,5)
+    - Side 3: right face (nodes 2,3,7,6)
+    - Side 4: back face (nodes 3,4,8,7)
+    - Side 5: left face (nodes 1,4,8,5)
+    - Side 6: top face (nodes 5,6,7,8)
+    """
+    num_sides = len(elem_list)
+    dim_name = f'num_side_ss{sideset_num}'
+    nc.createDimension(dim_name, num_sides)
+
+    elem_var = nc.createVariable(f'elem_ss{sideset_num}', 'i4', (dim_name,))
+    side_var = nc.createVariable(f'side_ss{sideset_num}', 'i4', (dim_name,))
+
+    elem_var[:] = elem_list
+    side_var[:] = side_list
+
+    # Set the sideset status and ID
+    nc.variables['ss_status'][sideset_num-1] = 1
+    nc.variables['ss_prop1'][sideset_num-1] = sideset_id
 
 
 def generate_single_hex_contact():
@@ -107,6 +148,63 @@ def generate_single_hex_contact():
 
     nc.close()
     print(f"  Created: {filename}")
+
+
+def generate_single_hex_contact_with_sidesets():
+    """
+    Generate two hexahedral elements sharing one contact surface.
+    This version includes sidesets for the contact surfaces.
+    """
+    filename = 'test-data/single_hex_contact_with_sidesets.exo'
+    print(f"Generating {filename}...")
+
+    num_nodes = 12
+    num_elem = 2
+    num_el_blk = 2
+    num_side_sets = 2  # One sideset for each contact surface
+
+    nc = create_exodus_file(filename, 3, num_nodes, num_elem, num_el_blk, num_side_sets)
+
+    # Define nodes (same as original)
+    coords_x = np.array([0.0, 1.0, 1.0, 0.0,
+                         0.0, 1.0, 1.0, 0.0,
+                         0.0, 1.0, 1.0, 0.0])
+    coords_y = np.array([0.0, 0.0, 1.0, 1.0,
+                         0.0, 0.0, 1.0, 1.0,
+                         0.0, 0.0, 1.0, 1.0])
+    coords_z = np.array([0.0, 0.0, 0.0, 0.0,
+                         1.0, 1.0, 1.0, 1.0,
+                         2.0, 2.0, 2.0, 2.0])
+
+    nc.variables['coordx'][:] = coords_x
+    nc.variables['coordy'][:] = coords_y
+    nc.variables['coordz'][:] = coords_z
+
+    # Element block 1
+    nc.createDimension('num_el_in_blk1', 1)
+    nc.createDimension('num_nod_per_el1', 8)
+    connect1 = nc.createVariable('connect1', 'i4', ('num_el_in_blk1', 'num_nod_per_el1'))
+    connect1.elem_type = 'HEX8'
+    connect1[:] = [[1, 2, 3, 4, 5, 6, 7, 8]]
+
+    # Element block 2
+    nc.createDimension('num_el_in_blk2', 1)
+    nc.createDimension('num_nod_per_el2', 8)
+    connect2 = nc.createVariable('connect2', 'i4', ('num_el_in_blk2', 'num_nod_per_el2'))
+    connect2.elem_type = 'HEX8'
+    connect2[:] = [[5, 6, 7, 8, 9, 10, 11, 12]]
+
+    nc.variables['eb_status'][:] = [1, 1]
+    nc.variables['eb_prop1'][:] = [1, 2]
+
+    # Add sidesets for contact surfaces
+    # Sideset 1: Top face of first hex (element 1, side 6)
+    # Sideset 2: Bottom face of second hex (element 2, side 1)
+    add_sideset(nc, 1, 1, [1], [6])  # Element 1, top face
+    add_sideset(nc, 2, 2, [2], [1])  # Element 2, bottom face
+
+    nc.close()
+    print(f"  Created: {filename} (with sidesets for contact surfaces)")
 
 
 def generate_aligned_cubes_10x10x10():
@@ -233,6 +331,143 @@ def generate_aligned_cubes_10x10x10():
     print(f"  Created: {filename}")
 
 
+def generate_aligned_cubes_10x10x10_with_sidesets():
+    """
+    Generate two 1"x1"x1" cubes, each with 10x10x10 elements, sharing one contact surface.
+    This version includes sidesets for the contact surfaces.
+    """
+    filename = 'test-data/aligned_cubes_10x10x10_with_sidesets.exo'
+    print(f"Generating {filename}...")
+
+    n = 10
+    nodes_per_dim = n + 1
+
+    num_nodes_per_cube = nodes_per_dim ** 3
+    num_shared_nodes = nodes_per_dim ** 2
+    num_nodes = 2 * num_nodes_per_cube - num_shared_nodes
+
+    num_elem_per_cube = n ** 3
+    num_elem = 2 * num_elem_per_cube
+    num_el_blk = 2
+    num_side_sets = 2
+
+    nc = create_exodus_file(filename, 3, num_nodes, num_elem, num_el_blk, num_side_sets)
+
+    # Generate coordinates (same as original)
+    coords = np.linspace(0.0, 1.0, nodes_per_dim)
+    coords_x = []
+    coords_y = []
+    coords_z = []
+
+    for k in range(nodes_per_dim):
+        for j in range(nodes_per_dim):
+            for i in range(nodes_per_dim):
+                coords_x.append(coords[i])
+                coords_y.append(coords[j])
+                coords_z.append(coords[k])
+
+    for k in range(1, nodes_per_dim):
+        for j in range(nodes_per_dim):
+            for i in range(nodes_per_dim):
+                coords_x.append(coords[i])
+                coords_y.append(coords[j])
+                coords_z.append(coords[k] + 1.0)
+
+    nc.variables['coordx'][:] = np.array(coords_x)
+    nc.variables['coordy'][:] = np.array(coords_y)
+    nc.variables['coordz'][:] = np.array(coords_z)
+
+    # Generate connectivity for first cube
+    nc.createDimension('num_el_in_blk1', num_elem_per_cube)
+    nc.createDimension('num_nod_per_el1', 8)
+    connect1 = nc.createVariable('connect1', 'i4', ('num_el_in_blk1', 'num_nod_per_el1'))
+    connect1.elem_type = 'HEX8'
+
+    elem_idx = 0
+    for k in range(n):
+        for j in range(n):
+            for i in range(n):
+                n0 = k * nodes_per_dim * nodes_per_dim + j * nodes_per_dim + i
+                n1 = n0 + 1
+                n2 = n0 + nodes_per_dim + 1
+                n3 = n0 + nodes_per_dim
+                n4 = n0 + nodes_per_dim * nodes_per_dim
+                n5 = n4 + 1
+                n6 = n4 + nodes_per_dim + 1
+                n7 = n4 + nodes_per_dim
+
+                connect1[elem_idx] = [n0+1, n1+1, n2+1, n3+1, n4+1, n5+1, n6+1, n7+1]
+                elem_idx += 1
+
+    # Generate connectivity for second cube
+    nc.createDimension('num_el_in_blk2', num_elem_per_cube)
+    nc.createDimension('num_nod_per_el2', 8)
+    connect2 = nc.createVariable('connect2', 'i4', ('num_el_in_blk2', 'num_nod_per_el2'))
+    connect2.elem_type = 'HEX8'
+
+    base_offset = num_nodes_per_cube
+
+    elem_idx = 0
+    for k in range(n):
+        for j in range(n):
+            for i in range(n):
+                if k == 0:
+                    n0 = (nodes_per_dim - 1) * nodes_per_dim * nodes_per_dim + j * nodes_per_dim + i
+                    n1 = n0 + 1
+                    n2 = n0 + nodes_per_dim + 1
+                    n3 = n0 + nodes_per_dim
+                    n4_local = 0 * nodes_per_dim * nodes_per_dim + j * nodes_per_dim + i
+                    n4 = base_offset + n4_local
+                    n5 = n4 + 1
+                    n6 = n4 + nodes_per_dim + 1
+                    n7 = n4 + nodes_per_dim
+                else:
+                    n0_local = (k - 1) * nodes_per_dim * nodes_per_dim + j * nodes_per_dim + i
+                    n0 = base_offset + n0_local
+                    n1 = n0 + 1
+                    n2 = n0 + nodes_per_dim + 1
+                    n3 = n0 + nodes_per_dim
+                    n4 = n0 + nodes_per_dim * nodes_per_dim
+                    n5 = n4 + 1
+                    n6 = n4 + nodes_per_dim + 1
+                    n7 = n4 + nodes_per_dim
+
+                connect2[elem_idx] = [n0+1, n1+1, n2+1, n3+1, n4+1, n5+1, n6+1, n7+1]
+                elem_idx += 1
+
+    nc.variables['eb_status'][:] = [1, 1]
+    nc.variables['eb_prop1'][:] = [1, 2]
+
+    # Add sidesets for contact surfaces
+    # Sideset 1: Top face of first cube (all elements with k=9, side 6)
+    # Sideset 2: Bottom face of second cube (all elements with k=0, side 1)
+
+    elem_list_1 = []
+    side_list_1 = []
+    elem_list_2 = []
+    side_list_2 = []
+
+    # Top face of first cube (k=9 layer)
+    for j in range(n):
+        for i in range(n):
+            elem_num = 9 * n * n + j * n + i + 1  # Element number (1-based)
+            elem_list_1.append(elem_num)
+            side_list_1.append(6)  # Top face
+
+    # Bottom face of second cube (k=0 layer)
+    for j in range(n):
+        for i in range(n):
+            elem_num = num_elem_per_cube + 0 * n * n + j * n + i + 1  # Element number (1-based)
+            elem_list_2.append(elem_num)
+            side_list_2.append(1)  # Bottom face
+
+    add_sideset(nc, 1, 1, elem_list_1, side_list_1)
+    add_sideset(nc, 2, 2, elem_list_2, side_list_2)
+
+    nc.close()
+    print(f"  Created: {filename} (with sidesets for contact surfaces)")
+
+
 def generate_rotated_cube_contact():
     """
     Generate two 1"x1"x1" cubes with 10x10x10 elements.
@@ -345,6 +580,144 @@ def generate_rotated_cube_contact():
 
     nc.close()
     print(f"  Created: {filename}")
+
+
+def generate_rotated_cube_contact_with_sidesets():
+    """
+    Generate two 1"x1"x1" cubes with 10x10x10 elements.
+    One cube is rotated 45 degrees about the Z axis.
+    This version includes sidesets for the contact surfaces.
+    """
+    filename = 'test-data/rotated_cube_contact_with_sidesets.exo'
+    print(f"Generating {filename}...")
+
+    n = 10
+    nodes_per_dim = n + 1
+
+    num_nodes_per_cube = nodes_per_dim ** 3
+    num_nodes = 2 * num_nodes_per_cube
+
+    num_elem_per_cube = n ** 3
+    num_elem = 2 * num_elem_per_cube
+    num_el_blk = 2
+    num_side_sets = 2
+
+    nc = create_exodus_file(filename, 3, num_nodes, num_elem, num_el_blk, num_side_sets)
+
+    coords = np.linspace(0.0, 1.0, nodes_per_dim)
+
+    coords_x = []
+    coords_y = []
+    coords_z = []
+
+    # First cube (not rotated)
+    for k in range(nodes_per_dim):
+        for j in range(nodes_per_dim):
+            for i in range(nodes_per_dim):
+                coords_x.append(coords[i])
+                coords_y.append(coords[j])
+                coords_z.append(coords[k])
+
+    # Second cube (rotated 45 degrees about Z axis)
+    angle = np.pi / 4
+    cos_a = np.cos(angle)
+    sin_a = np.sin(angle)
+
+    for k in range(nodes_per_dim):
+        for j in range(nodes_per_dim):
+            for i in range(nodes_per_dim):
+                x = coords[i] - 0.5
+                y = coords[j] - 0.5
+                z = coords[k] + 1.0
+
+                x_rot = cos_a * x - sin_a * y + 0.5
+                y_rot = sin_a * x + cos_a * y + 0.5
+
+                coords_x.append(x_rot)
+                coords_y.append(y_rot)
+                coords_z.append(z)
+
+    nc.variables['coordx'][:] = np.array(coords_x)
+    nc.variables['coordy'][:] = np.array(coords_y)
+    nc.variables['coordz'][:] = np.array(coords_z)
+
+    # Generate connectivity for first cube
+    nc.createDimension('num_el_in_blk1', num_elem_per_cube)
+    nc.createDimension('num_nod_per_el1', 8)
+    connect1 = nc.createVariable('connect1', 'i4', ('num_el_in_blk1', 'num_nod_per_el1'))
+    connect1.elem_type = 'HEX8'
+
+    elem_idx = 0
+    for k in range(n):
+        for j in range(n):
+            for i in range(n):
+                n0 = k * nodes_per_dim * nodes_per_dim + j * nodes_per_dim + i
+                n1 = n0 + 1
+                n2 = n0 + nodes_per_dim + 1
+                n3 = n0 + nodes_per_dim
+                n4 = n0 + nodes_per_dim * nodes_per_dim
+                n5 = n4 + 1
+                n6 = n4 + nodes_per_dim + 1
+                n7 = n4 + nodes_per_dim
+
+                connect1[elem_idx] = [n0+1, n1+1, n2+1, n3+1, n4+1, n5+1, n6+1, n7+1]
+                elem_idx += 1
+
+    # Generate connectivity for second cube (rotated)
+    nc.createDimension('num_el_in_blk2', num_elem_per_cube)
+    nc.createDimension('num_nod_per_el2', 8)
+    connect2 = nc.createVariable('connect2', 'i4', ('num_el_in_blk2', 'num_nod_per_el2'))
+    connect2.elem_type = 'HEX8'
+
+    base_offset = num_nodes_per_cube
+
+    elem_idx = 0
+    for k in range(n):
+        for j in range(n):
+            for i in range(n):
+                n0 = base_offset + k * nodes_per_dim * nodes_per_dim + j * nodes_per_dim + i
+                n1 = n0 + 1
+                n2 = n0 + nodes_per_dim + 1
+                n3 = n0 + nodes_per_dim
+                n4 = n0 + nodes_per_dim * nodes_per_dim
+                n5 = n4 + 1
+                n6 = n4 + nodes_per_dim + 1
+                n7 = n4 + nodes_per_dim
+
+                connect2[elem_idx] = [n0+1, n1+1, n2+1, n3+1, n4+1, n5+1, n6+1, n7+1]
+                elem_idx += 1
+
+    nc.variables['eb_status'][:] = [1, 1]
+    nc.variables['eb_prop1'][:] = [1, 2]
+
+    # Add sidesets for contact surfaces
+    # Sideset 1: Top face of first cube (all elements with k=9, side 6)
+    # Sideset 2: Bottom face of second cube (all elements with k=0, side 1)
+
+    elem_list_1 = []
+    side_list_1 = []
+    elem_list_2 = []
+    side_list_2 = []
+
+    # Top face of first cube (k=9 layer)
+    for j in range(n):
+        for i in range(n):
+            elem_num = 9 * n * n + j * n + i + 1
+            elem_list_1.append(elem_num)
+            side_list_1.append(6)
+
+    # Bottom face of second cube (k=0 layer)
+    for j in range(n):
+        for i in range(n):
+            elem_num = num_elem_per_cube + 0 * n * n + j * n + i + 1
+            elem_list_2.append(elem_num)
+            side_list_2.append(1)
+
+    add_sideset(nc, 1, 1, elem_list_1, side_list_1)
+    add_sideset(nc, 2, 2, elem_list_2, side_list_2)
+
+    nc.close()
+    print(f"  Created: {filename} (with sidesets for contact surfaces)")
 
 
 def generate_cube_cylinder_contact():
@@ -470,19 +843,182 @@ def generate_cube_cylinder_contact():
     print(f"  Created: {filename}")
 
 
+def generate_cube_cylinder_contact_with_sidesets():
+    """
+    Generate a cube (10x10x10 elements) in contact with a cylinder.
+    The flat face of the cylinder is in contact with the top face of the cube.
+    This version includes sidesets for the contact surfaces.
+    """
+    filename = 'test-data/cube_cylinder_contact_with_sidesets.exo'
+    print(f"Generating {filename}...")
+
+    # Cube parameters
+    n_cube = 10
+    nodes_per_dim = n_cube + 1
+
+    # Cylinder parameters
+    n_radial = 5
+    n_circum = 20
+    n_height = 10
+    radius = 0.5
+    height = 1.0
+
+    # Calculate totals
+    num_nodes_cube = nodes_per_dim ** 3
+    num_nodes_cylinder = (n_radial + 1) * n_circum * (n_height + 1)
+    num_nodes = num_nodes_cube + num_nodes_cylinder
+
+    num_elem_cube = n_cube ** 3
+    num_elem_cylinder = (n_radial - 1) * n_circum * n_height
+    num_elem = num_elem_cube + num_elem_cylinder
+    num_el_blk = 2
+    num_side_sets = 2
+
+    nc = create_exodus_file(filename, 3, num_nodes, num_elem, num_el_blk, num_side_sets)
+
+    coords = np.linspace(0.0, 1.0, nodes_per_dim)
+
+    # Generate cube coordinates
+    coords_x = []
+    coords_y = []
+    coords_z = []
+
+    for k in range(nodes_per_dim):
+        for j in range(nodes_per_dim):
+            for i in range(nodes_per_dim):
+                coords_x.append(coords[i])
+                coords_y.append(coords[j])
+                coords_z.append(coords[k])
+
+    # Generate cylinder coordinates
+    for k in range(n_height + 1):
+        z = 1.0 + (k / n_height) * height
+        for j in range(n_circum):
+            theta = (j / n_circum) * 2 * np.pi
+            for i in range(n_radial + 1):
+                r = (i / n_radial) * radius
+                x = 0.5 + r * np.cos(theta)
+                y = 0.5 + r * np.sin(theta)
+                coords_x.append(x)
+                coords_y.append(y)
+                coords_z.append(z)
+
+    nc.variables['coordx'][:] = np.array(coords_x)
+    nc.variables['coordy'][:] = np.array(coords_y)
+    nc.variables['coordz'][:] = np.array(coords_z)
+
+    # Generate connectivity for cube
+    nc.createDimension('num_el_in_blk1', num_elem_cube)
+    nc.createDimension('num_nod_per_el1', 8)
+    connect1 = nc.createVariable('connect1', 'i4', ('num_el_in_blk1', 'num_nod_per_el1'))
+    connect1.elem_type = 'HEX8'
+
+    elem_idx = 0
+    for k in range(n_cube):
+        for j in range(n_cube):
+            for i in range(n_cube):
+                n0 = k * nodes_per_dim * nodes_per_dim + j * nodes_per_dim + i
+                n1 = n0 + 1
+                n2 = n0 + nodes_per_dim + 1
+                n3 = n0 + nodes_per_dim
+                n4 = n0 + nodes_per_dim * nodes_per_dim
+                n5 = n4 + 1
+                n6 = n4 + nodes_per_dim + 1
+                n7 = n4 + nodes_per_dim
+
+                connect1[elem_idx] = [n0+1, n1+1, n2+1, n3+1, n4+1, n5+1, n6+1, n7+1]
+                elem_idx += 1
+
+    # Generate connectivity for cylinder
+    nc.createDimension('num_el_in_blk2', num_elem_cylinder)
+    nc.createDimension('num_nod_per_el2', 8)
+    connect2 = nc.createVariable('connect2', 'i4', ('num_el_in_blk2', 'num_nod_per_el2'))
+    connect2.elem_type = 'HEX8'
+
+    base_offset = num_nodes_cube
+    nodes_per_ring = (n_radial + 1) * n_circum
+
+    elem_idx = 0
+    for k in range(n_height):
+        for j in range(n_circum):
+            j_next = (j + 1) % n_circum
+            for i in range(1, n_radial):
+                n0 = base_offset + k * nodes_per_ring + j * (n_radial + 1) + i
+                n1 = n0 + 1
+                n2 = base_offset + k * nodes_per_ring + j_next * (n_radial + 1) + i + 1
+                n3 = n2 - 1
+
+                n4 = n0 + nodes_per_ring
+                n5 = n1 + nodes_per_ring
+                n6 = n2 + nodes_per_ring
+                n7 = n3 + nodes_per_ring
+
+                connect2[elem_idx] = [n0+1, n1+1, n2+1, n3+1, n4+1, n5+1, n6+1, n7+1]
+                elem_idx += 1
+
+    nc.variables['eb_status'][:] = [1, 1]
+    nc.variables['eb_prop1'][:] = [1, 2]
+
+    # Add sidesets for contact surfaces
+    # Sideset 1: Top face of cube (all elements with k=9, side 6)
+    # Sideset 2: Bottom face of cylinder (all elements with k=0, side 1)
+
+    elem_list_1 = []
+    side_list_1 = []
+    elem_list_2 = []
+    side_list_2 = []
+
+    # Top face of cube (k=9 layer)
+    for j in range(n_cube):
+        for i in range(n_cube):
+            elem_num = 9 * n_cube * n_cube + j * n_cube + i + 1
+            elem_list_1.append(elem_num)
+            side_list_1.append(6)
+
+    # Bottom face of cylinder (k=0 layer)
+    # Elements are ordered by k, then j (circumferential), then i (radial, starting from i=1)
+    for j in range(n_circum):
+        for i in range(1, n_radial):
+            elem_num = num_elem_cube + 0 * n_circum * (n_radial - 1) + j * (n_radial - 1) + (i - 1) + 1
+            elem_list_2.append(elem_num)
+            side_list_2.append(1)
+
+    add_sideset(nc, 1, 1, elem_list_1, side_list_1)
+    add_sideset(nc, 2, 2, elem_list_2, side_list_2)
+
+    nc.close()
+    print(f"  Created: {filename} (with sidesets for contact surfaces)")
+
+
 if __name__ == "__main__":
     print("Generating test Exodus II mesh files...")
     print("=" * 60)
 
+    # Generate original meshes (without sidesets)
     generate_single_hex_contact()
     generate_aligned_cubes_10x10x10()
     generate_rotated_cube_contact()
     generate_cube_cylinder_contact()
 
+    print()
+    print("Generating meshes with sidesets...")
+    print("-" * 60)
+
+    # Generate meshes with sidesets
+    generate_single_hex_contact_with_sidesets()
+    generate_aligned_cubes_10x10x10_with_sidesets()
+    generate_rotated_cube_contact_with_sidesets()
+    generate_cube_cylinder_contact_with_sidesets()
+
     print("=" * 60)
     print("All test mesh files generated successfully!")
-    print("\nGenerated files:")
+    print("\nGenerated files (without sidesets):")
     print("  - test-data/single_hex_contact.exo")
     print("  - test-data/aligned_cubes_10x10x10.exo")
     print("  - test-data/rotated_cube_contact.exo")
     print("  - test-data/cube_cylinder_contact.exo")
+    print("\nGenerated files (with sidesets):")
+    print("  - test-data/single_hex_contact_with_sidesets.exo")
+    print("  - test-data/aligned_cubes_10x10x10_with_sidesets.exo")
+    print("  - test-data/rotated_cube_contact_with_sidesets.exo")
+    print("  - test-data/cube_cylinder_contact_with_sidesets.exo")

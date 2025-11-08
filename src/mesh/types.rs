@@ -208,7 +208,7 @@ mod tests {
     fn test_quad_canonical() {
         let face1 = QuadFace::new([1, 2, 3, 4]);
         let face2 = QuadFace::new([2, 3, 4, 1]); // rotated
-        let face3 = QuadFace::new([4, 3, 2, 1]); // reversed
+        let _face3 = QuadFace::new([4, 3, 2, 1]); // reversed
 
         assert_eq!(face1.canonical(), face2.canonical());
         // Note: face3 reversed should also match after canonicalization

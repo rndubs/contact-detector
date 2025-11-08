@@ -117,4 +117,31 @@ pub enum Commands {
         #[arg(short, long, value_name = "DIR")]
         output: PathBuf,
     },
+
+    /// Automatically detect contact surfaces based on geometry alone
+    AutoContact {
+        /// Path to the Exodus II file
+        #[arg(value_name = "FILE")]
+        input: PathBuf,
+
+        /// Maximum gap distance (tolerance)
+        #[arg(long, default_value = "0.005")]
+        max_gap: f64,
+
+        /// Maximum penetration distance
+        #[arg(long, default_value = "0.001")]
+        max_penetration: f64,
+
+        /// Maximum normal angle in degrees
+        #[arg(long, default_value = "45.0")]
+        max_angle: f64,
+
+        /// Minimum number of contact pairs to consider surfaces in contact
+        #[arg(long, default_value = "1")]
+        min_pairs: usize,
+
+        /// Output directory for results
+        #[arg(short, long, value_name = "DIR")]
+        output: PathBuf,
+    },
 }

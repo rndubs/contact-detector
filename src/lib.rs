@@ -2,6 +2,7 @@
 //!
 //! High-performance hexahedral mesh contact pair detection and surface extraction.
 
+pub mod contact;
 pub mod error;
 pub mod io;
 pub mod mesh;

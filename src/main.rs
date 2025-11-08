@@ -203,15 +203,73 @@ fn cmd_skin(
 }
 
 fn cmd_contact(
-    _input: std::path::PathBuf,
-    _part_a: String,
-    _part_b: String,
-    _max_gap: f64,
-    _max_penetration: f64,
-    _max_angle: f64,
+    input: std::path::PathBuf,
+    part_a: String,
+    part_b: String,
+    max_gap: f64,
+    max_penetration: f64,
+    max_angle: f64,
     _output: std::path::PathBuf,
 ) -> Result<()> {
-    println!("Contact detection not yet implemented (Phase 3)");
+    use contact_detector::contact::{detect_contact_pairs, ContactCriteria};
+    use contact_detector::mesh::extract_surface;
+
+    log::info!("Reading mesh file: {}", input.display());
+
+    // Read mesh from file
+    let mesh = if input.extension().and_then(|s| s.to_str()) == Some("json") {
+        contact_detector::io::read_json_mesh(&input)?
+    } else {
+        #[cfg(feature = "exodus")]
+        {
+            let reader = ExodusReader::open(&input)?;
+            reader.read_mesh()?
+        }
+        #[cfg(not(feature = "exodus"))]
+        {
+            return Err(contact_detector::ContactDetectorError::ConfigError(
+                "Exodus support not compiled in. Install libhdf5-dev and libnetcdf-dev, then rebuild with --features exodus".to_string()
+            ));
+        }
+    };
+
+    log::info!(
+        "Loaded mesh with {} nodes, {} elements",
+        mesh.num_nodes(),
+        mesh.num_elements()
+    );
+
+    // Extract surface
+    let surfaces = extract_surface(&mesh)?;
+
+    // Find the requested surfaces
+    let surface_a = surfaces
+        .iter()
+        .find(|s| s.part_name == part_a)
+        .ok_or_else(|| {
+            contact_detector::ContactDetectorError::ElementBlockNotFound(part_a.clone())
+        })?;
+
+    let surface_b = surfaces
+        .iter()
+        .find(|s| s.part_name == part_b)
+        .ok_or_else(|| {
+            contact_detector::ContactDetectorError::ElementBlockNotFound(part_b.clone())
+        })?;
+
+    // Set up contact detection criteria
+    let criteria = ContactCriteria::new(max_gap, max_penetration, max_angle);
+
+    // Detect contact pairs
+    let results = detect_contact_pairs(surface_a, surface_b, &criteria)?;
+
+    // Print summary
+    results.print_summary();
+
+    // TODO: Write results to VTU file with contact metadata
+    log::warn!("VTU output with contact metadata not yet implemented");
+    println!("\nNote: Output file creation will be implemented in Phase 4");
+
     Ok(())
 }
 

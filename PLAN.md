@@ -8,7 +8,8 @@
 - [x] **Phase 4: Metric Computation** - Compute surface-level and element-level metrics (see [Phase 4](#phase-4-metric-computation-week-5-6))
 - [x] **Phase 5: CLI Polishing & Documentation** - Production-ready CLI with good UX (see [Phase 5](#phase-5-cli-polishing--documentation-week-6-7))
 - [x] **Phase 6: Performance Optimization** - Benchmarking and parallelization, achieving ~3.8s for 1M elements (8x faster than target) (see [Phase 6](#phase-6-optional-performance-optimization))
-- [ ] **Phase 7 (Future): CAD Import** - Import meshless CAD geometry from STEP/IGES (see [Phase 7](#phase-7-future-cad-import-stepiges))
+- [x] **Phase 7: Automatic Contact Detection** - Added geometry-based automatic contact surface discovery (see [Phase 7](#phase-7-automatic-contact-detection))
+- [ ] **Phase 8 (Future): CAD Import** - Import meshless CAD geometry from STEP/IGES (see [Phase 8](#phase-8-future-cad-import-stepiges))
 
 ## Executive Summary
 
@@ -431,7 +432,49 @@ Based on clarifying discussions, the following requirements are confirmed:
 
 ---
 
-### Phase 7 (Future): CAD Import (STEP/IGES)
+### Phase 7: Automatic Contact Detection
+
+**Goal**: Enable automatic discovery of contact surfaces based on geometry alone
+
+#### Tasks:
+1. ✅ **Design automatic surface detection approach**
+   - Analyze current contact detection flow
+   - Identify requirements for geometry-based detection
+   - Plan implementation strategy
+
+2. ✅ **Implement auto-contact command**
+   - Added new CLI command `auto-contact`
+   - Extracts all surfaces from element blocks automatically
+   - Tests all unique surface pairs for contact
+   - Filters results based on minimum contact threshold
+
+3. ✅ **Features implemented**
+   - Comprehensive surface pair testing (n choose 2 combinations)
+   - Progress bar with real-time updates
+   - Configurable contact criteria (max-gap, max-penetration, max-angle)
+   - Minimum pairs threshold for filtering insignificant contacts
+   - Detailed statistics for each detected contact pair
+   - VTU output for visualization
+
+#### Command Usage:
+```bash
+# Basic usage
+contact-detector auto-contact mesh.exo -o auto-results/
+
+# With custom criteria
+contact-detector auto-contact mesh.exo \
+    --max-gap 0.01 \
+    --max-penetration 0.005 \
+    --max-angle 60 \
+    --min-pairs 5 \
+    -o auto-results/
+```
+
+**Deliverable**: Production-ready automatic contact detection without requiring sideset/nodeset definitions
+
+---
+
+### Phase 8 (Future): CAD Import (STEP/IGES)
 **Goal**: Import meshless CAD geometry
 
 #### Research Needed:

@@ -54,6 +54,14 @@ fn main() -> Result<()> {
             config,
             output,
         } => cmd_analyze(input, pairs, config, output),
+        Commands::AutoContact {
+            input,
+            max_gap,
+            max_penetration,
+            max_angle,
+            min_pairs,
+            output,
+        } => cmd_auto_contact(input, max_gap, max_penetration, max_angle, min_pairs, output),
     }
 }
 
@@ -445,4 +453,210 @@ fn sanitize_filename(name: &str) -> String {
             }
         })
         .collect()
+}
+
+fn cmd_auto_contact(
+    input: std::path::PathBuf,
+    max_gap: f64,
+    max_penetration: f64,
+    max_angle: f64,
+    min_pairs: usize,
+    output: std::path::PathBuf,
+) -> Result<()> {
+    use contact_detector::contact::{detect_contact_pairs, ContactCriteria, SurfaceMetrics};
+    use contact_detector::io::write_surface_with_contact_metadata;
+    use contact_detector::mesh::extract_surface;
+    use indicatif::{ProgressBar, ProgressStyle};
+
+    println!("{}", "=".repeat(60));
+    println!("AUTOMATIC CONTACT DETECTION");
+    println!("{}", "=".repeat(60));
+    println!();
+
+    log::info!("Reading mesh file: {}", input.display());
+
+    // Read mesh from file
+    let mesh = if input.extension().and_then(|s| s.to_str()) == Some("json") {
+        contact_detector::io::read_json_mesh(&input)?
+    } else {
+        #[cfg(feature = "exodus")]
+        {
+            let reader = ExodusReader::open(&input)?;
+            reader.read_mesh()?
+        }
+        #[cfg(not(feature = "exodus"))]
+        {
+            return Err(contact_detector::ContactDetectorError::ConfigError(
+                "Exodus support not compiled in. Install libhdf5-dev and libnetcdf-dev, then rebuild with --features exodus".to_string()
+            ));
+        }
+    };
+
+    println!(
+        "Loaded mesh: {} nodes, {} elements, {} blocks",
+        mesh.num_nodes(),
+        mesh.num_elements(),
+        mesh.num_blocks()
+    );
+    println!();
+
+    // Extract all surfaces
+    println!("Extracting surfaces from all element blocks...");
+    let surfaces = extract_surface(&mesh)?;
+    println!("Extracted {} surfaces:", surfaces.len());
+    for surface in &surfaces {
+        println!(
+            "  - {}: {} faces, area: {:.6}",
+            surface.part_name,
+            surface.num_faces(),
+            surface.total_area()
+        );
+    }
+    println!();
+
+    // Set up contact detection criteria
+    let criteria = ContactCriteria::new(max_gap, max_penetration, max_angle);
+
+    println!("Contact detection criteria:");
+    println!("  Max gap:         {:.6}", max_gap);
+    println!("  Max penetration: {:.6}", max_penetration);
+    println!("  Max angle:       {:.1}°", max_angle);
+    println!("  Min pairs:       {}", min_pairs);
+    println!();
+
+    // Create output directory
+    std::fs::create_dir_all(&output)?;
+
+    // Test all pairs of surfaces
+    let num_surfaces = surfaces.len();
+    let total_tests = (num_surfaces * (num_surfaces - 1)) / 2; // n choose 2
+
+    if total_tests == 0 {
+        println!("Not enough surfaces to test for contact (need at least 2)");
+        return Ok(());
+    }
+
+    println!("Testing {} surface pair combinations...", total_tests);
+    println!("{}", "=".repeat(60));
+
+    // Setup progress bar
+    let pb = ProgressBar::new(total_tests as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
+            .unwrap()
+            .progress_chars("=>-"),
+    );
+
+    let mut detected_pairs = Vec::new();
+    let mut test_count = 0;
+
+    // Test all unique pairs (i, j) where i < j
+    for i in 0..num_surfaces {
+        for j in (i + 1)..num_surfaces {
+            let surface_a = &surfaces[i];
+            let surface_b = &surfaces[j];
+
+            pb.set_message(format!("{} ↔ {}", surface_a.part_name, surface_b.part_name));
+
+            // Detect contact pairs
+            let results = detect_contact_pairs(surface_a, surface_b, &criteria)?;
+
+            // Check if this pair has significant contact
+            if results.num_pairs() >= min_pairs {
+                let metrics_a = SurfaceMetrics::compute(&results, surface_a);
+
+                detected_pairs.push((
+                    surface_a.part_name.clone(),
+                    surface_b.part_name.clone(),
+                    results,
+                    metrics_a,
+                    i,
+                    j,
+                ));
+
+                log::info!(
+                    "Found contact: {} ↔ {} ({} pairs)",
+                    surface_a.part_name,
+                    surface_b.part_name,
+                    detected_pairs.last().unwrap().2.num_pairs()
+                );
+            }
+
+            test_count += 1;
+            pb.inc(1);
+        }
+    }
+
+    pb.finish_with_message("Complete");
+    println!();
+
+    // Report results
+    println!("{}", "=".repeat(60));
+    println!("DETECTION RESULTS");
+    println!("{}", "=".repeat(60));
+    println!();
+
+    if detected_pairs.is_empty() {
+        println!("No contact pairs detected with the specified criteria.");
+        println!();
+        println!("Suggestions:");
+        println!("  - Try increasing --max-gap (current: {:.6})", max_gap);
+        println!("  - Try increasing --max-angle (current: {:.1}°)", max_angle);
+        println!(
+            "  - Try decreasing --min-pairs (current: {})",
+            min_pairs
+        );
+    } else {
+        println!(
+            "Detected {} contact pair(s):",
+            detected_pairs.len()
+        );
+        println!();
+
+        // Write output files for each detected pair
+        for (idx, (part_a, part_b, results, metrics_a, i, j)) in
+            detected_pairs.iter().enumerate()
+        {
+            println!(
+                "[{}/{}] {} ↔ {}:",
+                idx + 1,
+                detected_pairs.len(),
+                part_a,
+                part_b
+            );
+            println!("  Contact pairs:   {}", results.num_pairs());
+            println!("  Unpaired (A):    {}", results.unpaired_a.len());
+            println!("  Unpaired (B):    {}", results.unpaired_b.len());
+            println!("  Avg distance:    {:.6}", metrics_a.avg_distance);
+            println!("  Min distance:    {:.6}", metrics_a.min_distance);
+            println!("  Max distance:    {:.6}", metrics_a.max_distance);
+
+            // Generate output filename
+            let output_filename = format!(
+                "contact_{}_{}.vtu",
+                sanitize_filename(part_a),
+                sanitize_filename(part_b)
+            );
+
+            let output_path = output.join(&output_filename);
+
+            // Write results
+            write_surface_with_contact_metadata(
+                &surfaces[*i],
+                results,
+                metrics_a,
+                &output_path,
+            )?;
+
+            println!("  Output:          {}", output_filename);
+            println!();
+        }
+
+        println!("{}", "=".repeat(60));
+        println!("Results written to: {}", output.display());
+        println!("{}", "=".repeat(60));
+    }
+
+    Ok(())
 }

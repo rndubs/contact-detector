@@ -209,7 +209,7 @@ fn cmd_contact(
     max_gap: f64,
     max_penetration: f64,
     max_angle: f64,
-    _output: std::path::PathBuf,
+    output: std::path::PathBuf,
 ) -> Result<()> {
     use contact_detector::contact::{detect_contact_pairs, ContactCriteria};
     use contact_detector::mesh::extract_surface;
@@ -266,9 +266,20 @@ fn cmd_contact(
     // Print summary
     results.print_summary();
 
-    // TODO: Write results to VTU file with contact metadata
-    log::warn!("VTU output with contact metadata not yet implemented");
-    println!("\nNote: Output file creation will be implemented in Phase 4");
+    // Compute surface metrics
+    use contact_detector::contact::SurfaceMetrics;
+    use contact_detector::io::write_surface_with_contact_metadata;
+
+    let metrics_a = SurfaceMetrics::compute(&results, surface_a);
+    let metrics_b = SurfaceMetrics::compute(&results, surface_b);
+
+    metrics_a.print_summary(&surface_a.part_name);
+    metrics_b.print_summary(&surface_b.part_name);
+
+    // Write surface A with contact metadata
+    write_surface_with_contact_metadata(surface_a, &results, &metrics_a, &output)?;
+
+    println!("\nWrote surface with contact metadata to: {}", output.display());
 
     Ok(())
 }

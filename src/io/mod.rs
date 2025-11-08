@@ -4,8 +4,10 @@
 pub mod exodus;
 
 pub mod json;
+pub mod vtu;
 
 #[cfg(feature = "exodus")]
 pub use exodus::ExodusReader;
 
 pub use json::{read_json_mesh, write_json_mesh};
+pub use vtu::{write_surface_to_vtu, write_surfaces_to_vtu};

@@ -124,11 +124,81 @@ fn cmd_info(input: std::path::PathBuf) -> Result<()> {
 }
 
 fn cmd_skin(
-    _input: std::path::PathBuf,
-    _output: std::path::PathBuf,
-    _part: Option<String>,
+    input: std::path::PathBuf,
+    output: std::path::PathBuf,
+    part: Option<String>,
 ) -> Result<()> {
-    println!("Surface extraction not yet implemented (Phase 2)");
+    use contact_detector::io::{write_surface_to_vtu, write_surfaces_to_vtu};
+    use contact_detector::mesh::extract_surface;
+
+    log::info!("Reading mesh file: {}", input.display());
+
+    // Read mesh from file
+    let mesh = if input.extension().and_then(|s| s.to_str()) == Some("json") {
+        contact_detector::io::read_json_mesh(&input)?
+    } else {
+        #[cfg(feature = "exodus")]
+        {
+            let reader = ExodusReader::open(&input)?;
+            reader.read_mesh()?
+        }
+        #[cfg(not(feature = "exodus"))]
+        {
+            return Err(contact_detector::ContactDetectorError::ConfigError(
+                "Exodus support not compiled in. Install libhdf5-dev and libnetcdf-dev, then rebuild with --features exodus".to_string()
+            ));
+        }
+    };
+
+    log::info!(
+        "Loaded mesh with {} nodes, {} elements",
+        mesh.num_nodes(),
+        mesh.num_elements()
+    );
+
+    // Extract surface
+    let surfaces = extract_surface(&mesh)?;
+
+    // Filter by part if specified
+    let surfaces_to_write: Vec<_> = if let Some(part_name) = part {
+        surfaces
+            .into_iter()
+            .filter(|s| s.part_name == part_name)
+            .collect()
+    } else {
+        surfaces
+    };
+
+    if surfaces_to_write.is_empty() {
+        log::warn!("No surfaces to write");
+        return Ok(());
+    }
+
+    // Write output
+    if surfaces_to_write.len() == 1 {
+        // Single surface - write directly to output file
+        write_surface_to_vtu(&surfaces_to_write[0], &output)?;
+        println!("Surface extracted and written to: {}", output.display());
+    } else {
+        // Multiple surfaces - output should be a directory
+        write_surfaces_to_vtu(&surfaces_to_write, &output)?;
+        println!(
+            "Extracted {} surfaces to directory: {}",
+            surfaces_to_write.len(),
+            output.display()
+        );
+    }
+
+    // Print statistics
+    for surface in &surfaces_to_write {
+        println!(
+            "  - {}: {} faces, total area: {:.6}",
+            surface.part_name,
+            surface.num_faces(),
+            surface.total_area()
+        );
+    }
+
     Ok(())
 }
 

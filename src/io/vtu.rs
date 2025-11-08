@@ -1,0 +1,169 @@
+//! VTU (VTK Unstructured Grid) file writer
+
+use crate::error::{ContactDetectorError, Result};
+use crate::mesh::types::SurfaceMesh;
+use std::path::Path;
+use vtkio::model::*;
+
+/// Write a surface mesh to a VTU file
+pub fn write_surface_to_vtu(surface: &SurfaceMesh, output_path: &Path) -> Result<()> {
+    log::info!(
+        "Writing surface '{}' with {} faces to {:?}",
+        surface.part_name,
+        surface.num_faces(),
+        output_path
+    );
+
+    // Create point array from nodes
+    let points: Vec<f64> = surface
+        .nodes
+        .iter()
+        .flat_map(|p| vec![p.x, p.y, p.z])
+        .collect();
+
+    // Create cell connectivity for quad faces
+    let mut connectivity = Vec::new();
+    for face in &surface.faces {
+        connectivity.extend_from_slice(&face.node_ids.map(|id| id as u64));
+    }
+
+    // All cells are quads (VTK_QUAD = 9)
+    let cell_types = vec![CellType::Quad; surface.faces.len()];
+
+    // Create cells with offsets
+    let cells = Cells {
+        cell_verts: VertexNumbers::XML {
+            connectivity,
+            offsets: (0..surface.faces.len())
+                .map(|i| ((i + 1) * 4) as u64)
+                .collect(),
+        },
+        types: cell_types,
+    };
+
+    // Create unstructured grid piece
+    let mut ugrid = UnstructuredGridPiece {
+        points: IOBuffer::F64(points),
+        cells,
+        data: Attributes::new(),
+    };
+
+    // Add face normals as cell data (vectors with 3 components)
+    let normal_data: Vec<f64> = surface
+        .face_normals
+        .iter()
+        .flat_map(|n| vec![n.x, n.y, n.z])
+        .collect();
+
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "normals".into(),
+        elem: ElementType::Vectors,
+        data: IOBuffer::F64(normal_data),
+    }));
+
+    // Add face areas as cell data (scalars)
+    let area_data: Vec<f64> = surface.face_areas.clone();
+
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "area".into(),
+        elem: ElementType::Scalars {
+            num_comp: 1,
+            lookup_table: None,
+        },
+        data: IOBuffer::F64(area_data),
+    }));
+
+    // Create the Vtk model
+    let vtk = Vtk {
+        version: Version::new((4, 2)),
+        title: format!("Surface mesh: {}", surface.part_name),
+        byte_order: ByteOrder::LittleEndian,
+        data: DataSet::UnstructuredGrid {
+            pieces: vec![Piece::Inline(Box::new(ugrid))],
+            meta: None,
+        },
+        file_path: None,
+    };
+
+    // Write to file
+    vtk.export(output_path)
+        .map_err(|e| ContactDetectorError::VtkError(format!("Failed to write VTU file: {}", e)))?;
+
+    log::info!("Successfully wrote VTU file to {:?}", output_path);
+
+    Ok(())
+}
+
+/// Write multiple surface meshes to separate VTU files
+/// Each surface is written to <output_dir>/<part_name>.vtu
+pub fn write_surfaces_to_vtu(surfaces: &[SurfaceMesh], output_dir: &Path) -> Result<()> {
+    // Create output directory if it doesn't exist
+    std::fs::create_dir_all(output_dir)?;
+
+    for surface in surfaces {
+        let filename = format!("{}.vtu", sanitize_filename(&surface.part_name));
+        let output_path = output_dir.join(filename);
+        write_surface_to_vtu(surface, &output_path)?;
+    }
+
+    Ok(())
+}
+
+/// Sanitize a string to be a valid filename
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mesh::types::{Point, QuadFace, Vec3};
+
+    fn make_test_surface() -> SurfaceMesh {
+        let nodes = vec![
+            Point::new(0.0, 0.0, 0.0),
+            Point::new(1.0, 0.0, 0.0),
+            Point::new(1.0, 1.0, 0.0),
+            Point::new(0.0, 1.0, 0.0),
+        ];
+
+        let face = QuadFace::new([0, 1, 2, 3]);
+
+        SurfaceMesh {
+            part_name: "TestBlock".to_string(),
+            faces: vec![face],
+            face_normals: vec![Vec3::new(0.0, 0.0, 1.0)],
+            face_centroids: vec![Point::new(0.5, 0.5, 0.0)],
+            face_areas: vec![1.0],
+            nodes,
+        }
+    }
+
+    #[test]
+    fn test_sanitize_filename() {
+        assert_eq!(sanitize_filename("Block 1"), "Block_1");
+        assert_eq!(sanitize_filename("Part-A/B"), "Part-A_B");
+        assert_eq!(sanitize_filename("Normal_Name"), "Normal_Name");
+    }
+
+    #[test]
+    fn test_write_surface_to_vtu() {
+        let surface = make_test_surface();
+        let temp_dir = std::env::temp_dir();
+        let output_path = temp_dir.join("test_surface.vtu");
+
+        let result = write_surface_to_vtu(&surface, &output_path);
+        assert!(result.is_ok());
+
+        // Clean up
+        let _ = std::fs::remove_file(&output_path);
+    }
+}

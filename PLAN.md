@@ -474,7 +474,129 @@ contact-detector auto-contact mesh.exo \
 
 ---
 
-### Phase 8 (Future): CAD Import (STEP/IGES)
+### Phase 8: Visualization & Metadata Export
+**Goal**: Enhanced visualization and metadata export for contact analysis
+
+#### Requirements:
+1. **Contact Surface Visualization in ParaView**
+   - Export detected contact surfaces (sidesets) with clear labeling
+   - Ability to identify which surfaces are contact pairs
+   - Visualize contact surfaces overlaid on the full skinned mesh for spatial context
+   - Surfaces alone are difficult to interpret; need mesh context for understanding
+
+2. **Exodus Sideset Writing**
+   - Write detected contact surfaces back to Exodus mesh as sidesets
+   - Enable other applications to use the automatically detected contact definitions
+   - Preserve original mesh geometry and element blocks
+   - Add new sidesets for each detected contact surface
+
+3. **JSON Metadata Export**
+   - Export comprehensive metadata for all detected contact pairs
+   - Include sideset names and pairing information
+   - Include computed properties:
+     - Surface area (total, paired, unpaired)
+     - Average/min/max surface normals
+     - Contact statistics (gap distances, normal angles, etc.)
+     - Number of faces in contact vs. unpaired
+   - Enable easier debugging and analysis workflow
+
+#### Tasks:
+- [ ] **VTU Visualization Enhancement**
+  - Modify VTU output to include both contact surfaces AND full skinned mesh
+  - Add "contact_region_id" field to identify which surfaces are paired
+  - Add surface labels/names as cell data for ParaView filtering
+  - Support visualization of contact pair relationships
+
+- [ ] **Exodus Sideset Writer**
+  - Implement function to write sidesets back to Exodus file
+  - Map detected contact surfaces to Exodus sideset format (element_id, face_id pairs)
+  - Generate unique sideset names (e.g., "auto_contact_Block1_patch4")
+  - Preserve all existing mesh data, nodesets, and sidesets
+
+- [ ] **JSON Metadata Exporter**
+  - Create JSON schema for contact pair metadata
+  - Export surface properties:
+    - Sideset names for each contact pair
+    - Surface area statistics
+    - Normal vector statistics (average direction, variance)
+    - Distance metrics (avg, min, max, std dev)
+    - Angular metrics (normal alignment)
+  - Include detection criteria used
+  - Include timestamp and mesh filename for traceability
+
+#### Command Usage:
+```bash
+# Auto-contact with full visualization and metadata
+contact-detector auto-contact mesh.exo \
+    --output-dir results/ \
+    --export-sidesets \
+    --export-metadata metadata.json \
+    --visualize-with-skin
+
+# This would generate:
+# - results/contact_pair_1.vtu (contact surfaces + skinned mesh)
+# - results/contact_pair_2.vtu
+# - results/mesh_with_sidesets.exo (original mesh + new sidesets)
+# - results/metadata.json (comprehensive contact pair info)
+```
+
+#### JSON Metadata Schema Example:
+```json
+{
+  "mesh_file": "cube_cylinder_contact.exo",
+  "timestamp": "2025-01-08T12:34:56Z",
+  "detection_criteria": {
+    "max_gap": 0.01,
+    "max_penetration": 0.01,
+    "max_angle": 30.0,
+    "min_pairs": 1
+  },
+  "contact_pairs": [
+    {
+      "pair_id": 1,
+      "surface_a": {
+        "name": "Block_1:patch_4",
+        "sideset_name": "auto_contact_Block_1_patch_4",
+        "block_id": 1,
+        "patch_id": 4,
+        "total_faces": 100,
+        "paired_faces": 18,
+        "unpaired_faces": 82,
+        "total_area": 1.0,
+        "paired_area": 0.18,
+        "avg_normal": [0.0, 0.0, -1.0]
+      },
+      "surface_b": {
+        "name": "Block_2:patch_1",
+        "sideset_name": "auto_contact_Block_2_patch_1",
+        "block_id": 2,
+        "patch_id": 1,
+        "total_faces": 76,
+        "paired_faces": 18,
+        "unpaired_faces": 58,
+        "total_area": 0.704559,
+        "paired_area": 0.166,
+        "avg_normal": [0.0, 0.0, 1.0]
+      },
+      "contact_statistics": {
+        "num_pairs": 18,
+        "avg_distance": 0.0,
+        "min_distance": 0.0,
+        "max_distance": 0.0,
+        "std_dev_distance": 0.0,
+        "avg_normal_angle": 180.0,
+        "normal_alignment": "opposed"
+      }
+    }
+  ]
+}
+```
+
+**Deliverable**: Complete visualization and metadata export workflow for debugging and downstream application integration
+
+---
+
+### Phase 9 (Future): CAD Import (STEP/IGES)
 **Goal**: Import meshless CAD geometry
 
 #### Research Needed:

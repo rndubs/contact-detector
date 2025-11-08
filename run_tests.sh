@@ -52,46 +52,43 @@ done
 echo ""
 echo "============================================================"
 
-# Step 3: Run full contact detection workflow on all test meshes
-echo -e "${BLUE}[4/4] Running contact detection workflow...${NC}"
+# Step 3: Run automatic contact detection workflow on all test meshes
+echo -e "${BLUE}[4/4] Running automatic contact detection workflow...${NC}"
 echo "============================================================"
 echo ""
 
-# Define test cases with their contact pair configurations
-# Format: mesh_file:block_a:block_b
-
-declare -a test_cases=(
-    "test-data/single_hex_contact.exo:1:2"
-    "test-data/aligned_cubes_10x10x10.exo:1:2"
-    "test-data/rotated_cube_contact.exo:1:2"
-    "test-data/cube_cylinder_contact.exo:1:2"
-    "test-data/hexcyl.exo:1:2"
+# Define test mesh files
+declare -a test_meshes=(
+    "test-data/single_hex_contact.exo"
+    "test-data/aligned_cubes_10x10x10.exo"
+    "test-data/rotated_cube_contact.exo"
+    "test-data/cube_cylinder_contact.exo"
+    "test-data/hexcyl.exo"
+    "test-data/single_hex_contact_with_sidesets.exo"
+    "test-data/aligned_cubes_10x10x10_with_sidesets.exo"
+    "test-data/rotated_cube_contact_with_sidesets.exo"
+    "test-data/cube_cylinder_contact_with_sidesets.exo"
 )
 
-# Run contact detection for each test case
-for test_case in "${test_cases[@]}"; do
-    IFS=':' read -r mesh_file block_a block_b <<< "$test_case"
-
+# Run automatic contact detection for each test mesh
+for mesh_file in "${test_meshes[@]}"; do
     if [ -f "$mesh_file" ]; then
         mesh_name=$(basename "$mesh_file" .exo)
-        output_file="$OUTPUT_DIR/${mesh_name}_contact.vtu"
+        output_dir="$OUTPUT_DIR/${mesh_name}"
 
         echo ""
         echo -e "${YELLOW}Processing: $mesh_name${NC}"
         echo "  Mesh: $mesh_file"
-        echo "  Contact pair: Block $block_a ↔ Block $block_b"
-        echo "  Output: $output_file"
+        echo "  Output directory: $output_dir"
         echo "------------------------------------------------------------"
 
-        # Run contact detection with default parameters
+        # Run automatic contact detection with default parameters
         # max-gap: 0.01, max-penetration: 0.01, max-angle: 30 degrees
-        "$BINARY" contact "$mesh_file" \
-            --part-a "$block_a" \
-            --part-b "$block_b" \
+        "$BINARY" auto-contact "$mesh_file" \
             --max-gap 0.01 \
             --max-penetration 0.01 \
             --max-angle 30.0 \
-            -o "$output_file"
+            -o "$output_dir"
 
         echo -e "${GREEN}✓ Complete${NC}"
     else
@@ -109,6 +106,6 @@ echo ""
 echo "Files generated:"
 ls -lh "$OUTPUT_DIR"
 echo ""
-echo "To visualize the results, open the .vtu files in ParaView:"
-echo "  paraview $OUTPUT_DIR/*.vtu"
+echo "To visualize the results, open the result directories in ParaView:"
+echo "  paraview $OUTPUT_DIR/*/contact_pairs.vtu"
 echo ""

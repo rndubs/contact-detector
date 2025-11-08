@@ -12,7 +12,9 @@ name = "contact-detector"
 path = "src/main.rs"
 
 [dependencies]
-# Exodus II / NetCDF reading (optional - requires libhdf5-dev, libnetcdf-dev)
+# Exodus II / NetCDF reading (optional)
+# - With 'exodus' feature: requires system libraries (libhdf5-dev, libnetcdf-dev)
+# - With 'exodus-static' feature: builds HDF5/NetCDF from source (requires cmake, g++)
 netcdf = { version = "0.11", optional = true }
 
 # Linear algebra and geometry
@@ -45,6 +47,7 @@ approx = "0.5"
 [features]
 default = []
 exodus = ["netcdf"]
+exodus-static = ["netcdf/static"]
 
 [profile.release]
 opt-level = 3

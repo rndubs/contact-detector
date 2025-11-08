@@ -1,0 +1,22 @@
+{
+  "name": "Contact Detector Dev Container",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "rust-analyzer.checkOnSave.command": "clippy"
+      },
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates"
+      ]
+    }
+  },
+  "forwardPorts": [],
+  "postCreateCommand": "rustc --version && cargo --version",
+  "remoteUser": "vscode"
+}

@@ -1,5 +1,5 @@
 # Use official Rust image based on Debian
-FROM rust:1.82-bookworm
+FROM rust:1.88-bookworm
 
 # Install system dependencies required for building
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \

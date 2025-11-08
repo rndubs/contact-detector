@@ -1,7 +1,7 @@
-//! Exodus II file reader
+//! Exodus II file reader and writer
 //!
 //! Exodus II is a NetCDF-based file format for finite element data.
-//! This module provides functionality to read Exodus II files and convert them to our internal mesh representation.
+//! This module provides functionality to read and write Exodus II files.
 
 use crate::error::{ContactDetectorError, Result};
 use crate::mesh::{HexElement, Mesh, Point};
@@ -431,6 +431,226 @@ impl ExodusReader {
             dims.len()
         )))
     }
+}
+
+/// Write a mesh to an Exodus II file
+///
+/// This is a simplified Exodus writer that writes hex meshes.
+/// It creates a basic Exodus file with nodes, elements, and element blocks.
+pub fn write_exodus(mesh: &Mesh, output_path: &Path) -> Result<()> {
+    log::info!(
+        "Writing mesh with {} elements to {:?}",
+        mesh.num_elements(),
+        output_path
+    );
+
+    // Create the file with overwrite mode
+    let mut file = netcdf::create(output_path).map_err(|e| {
+        ContactDetectorError::ExodusReadError(format!("Failed to create Exodus file: {}", e))
+    })?;
+
+    // Add title
+    file.add_attribute("title", "Mesh exported from contact-detector")
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add title attribute: {}", e))
+        })?;
+
+    file.add_attribute("api_version", 8.11f32)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to add api_version attribute: {}",
+                e
+            ))
+        })?;
+
+    file.add_attribute("version", 8.11f32)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add version attribute: {}", e))
+        })?;
+
+    file.add_attribute("floating_point_word_size", 8i32)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to add floating_point_word_size attribute: {}",
+                e
+            ))
+        })?;
+
+    file.add_attribute("file_size", 1i32)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add file_size attribute: {}", e))
+        })?;
+
+    // Add dimensions
+    file.add_dimension("num_dim", 3)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add num_dim dimension: {}", e))
+        })?;
+
+    file.add_dimension("num_nodes", mesh.num_nodes())
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add num_nodes dimension: {}", e))
+        })?;
+
+    file.add_dimension("num_elem", mesh.num_elements())
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add num_elem dimension: {}", e))
+        })?;
+
+    file.add_dimension("num_el_blk", mesh.num_blocks())
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to add num_el_blk dimension: {}",
+                e
+            ))
+        })?;
+
+    file.add_dimension("len_string", 33)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to add len_string dimension: {}",
+                e
+            ))
+        })?;
+
+    file.add_dimension("num_qa_rec", 0)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add num_qa_rec dimension: {}", e))
+        })?;
+
+    file.add_dimension("num_info", 0)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add num_info dimension: {}", e))
+        })?;
+
+    file.add_dimension("time_step", 0)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to add time_step dimension: {}",
+                e
+            ))
+        })?;
+
+    // Write coordinate arrays
+    let coordx: Vec<f64> = mesh.nodes.iter().map(|p| p.x).collect();
+    let coordy: Vec<f64> = mesh.nodes.iter().map(|p| p.y).collect();
+    let coordz: Vec<f64> = mesh.nodes.iter().map(|p| p.z).collect();
+
+    let mut var = file
+        .add_variable::<f64>("coordx", &["num_nodes"])
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add coordx variable: {}", e))
+        })?;
+    var.put_values(&coordx, ..).map_err(|e| {
+        ContactDetectorError::ExodusReadError(format!("Failed to write coordx data: {}", e))
+    })?;
+
+    let mut var = file
+        .add_variable::<f64>("coordy", &["num_nodes"])
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add coordy variable: {}", e))
+        })?;
+    var.put_values(&coordy, ..).map_err(|e| {
+        ContactDetectorError::ExodusReadError(format!("Failed to write coordy data: {}", e))
+    })?;
+
+    let mut var = file
+        .add_variable::<f64>("coordz", &["num_nodes"])
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add coordz variable: {}", e))
+        })?;
+    var.put_values(&coordz, ..).map_err(|e| {
+        ContactDetectorError::ExodusReadError(format!("Failed to write coordz data: {}", e))
+    })?;
+
+    // Write element blocks
+    let mut sorted_blocks: Vec<_> = mesh.element_blocks.iter().collect();
+    sorted_blocks.sort_by_key(|(name, _)| *name);
+
+    for (blk_idx, (block_name, elem_indices)) in sorted_blocks.iter().enumerate() {
+        let blk_id = blk_idx + 1;
+        let num_elem_in_blk = elem_indices.len();
+
+        // Add dimension for this block
+        let dim_name = format!("num_el_in_blk{}", blk_id);
+        file.add_dimension(&dim_name, num_elem_in_blk)
+            .map_err(|e| {
+                ContactDetectorError::ExodusReadError(format!(
+                    "Failed to add {} dimension: {}",
+                    dim_name, e
+                ))
+            })?;
+
+        let num_nod_per_el_name = format!("num_nod_per_el{}", blk_id);
+        file.add_dimension(&num_nod_per_el_name, 8)
+            .map_err(|e| {
+                ContactDetectorError::ExodusReadError(format!(
+                    "Failed to add {} dimension: {}",
+                    num_nod_per_el_name, e
+                ))
+            })?;
+
+        // Create connectivity variable
+        let connect_name = format!("connect{}", blk_id);
+        let mut var = file
+            .add_variable::<i32>(&connect_name, &[&dim_name, &num_nod_per_el_name])
+            .map_err(|e| {
+                ContactDetectorError::ExodusReadError(format!(
+                    "Failed to add {} variable: {}",
+                    connect_name, e
+                ))
+            })?;
+
+        // Add element type attribute
+        var.put_attribute("elem_type", "HEX8")
+            .map_err(|e| {
+                ContactDetectorError::ExodusReadError(format!(
+                    "Failed to add elem_type attribute to {}: {}",
+                    connect_name, e
+                ))
+            })?;
+
+        // Write connectivity (convert to 1-based indexing)
+        let mut connectivity = Vec::new();
+        for &elem_idx in elem_indices.iter() {
+            let elem = &mesh.elements[elem_idx];
+            for &node_id in &elem.node_ids {
+                connectivity.push((node_id + 1) as i32); // 1-based indexing
+            }
+        }
+
+        var.put_values(&connectivity, ..).map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to write connectivity for {}: {}",
+                connect_name, e
+            ))
+        })?;
+    }
+
+    // Write element block names
+    let max_name_len = 33;
+    let num_blocks = mesh.num_blocks();
+    let mut eb_names = vec![0u8; num_blocks * max_name_len];
+
+    for (blk_idx, (block_name, _)) in sorted_blocks.iter().enumerate() {
+        let start = blk_idx * max_name_len;
+        let bytes = block_name.as_bytes();
+        let copy_len = bytes.len().min(max_name_len - 1); // Leave room for null terminator
+        eb_names[start..start + copy_len].copy_from_slice(&bytes[..copy_len]);
+    }
+
+    let mut var = file
+        .add_variable::<u8>("eb_names", &["num_el_blk", "len_string"])
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add eb_names variable: {}", e))
+        })?;
+    var.put_values(&eb_names, ..).map_err(|e| {
+        ContactDetectorError::ExodusReadError(format!("Failed to write eb_names data: {}", e))
+    })?;
+
+    log::info!("Successfully wrote Exodus file to {:?}", output_path);
+
+    Ok(())
 }
 
 #[cfg(test)]

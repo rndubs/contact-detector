@@ -1,7 +1,7 @@
 //! VTU (VTK Unstructured Grid) file writer
 
 use crate::error::{ContactDetectorError, Result};
-use crate::mesh::types::SurfaceMesh;
+use crate::mesh::types::{Mesh, SurfaceMesh};
 use std::path::Path;
 use vtkio::model::*;
 
@@ -259,6 +259,71 @@ fn sanitize_filename(name: &str) -> String {
             }
         })
         .collect()
+}
+
+/// Write a full mesh (with hex elements) to a VTK file
+///
+/// This is useful for visualizing synthetic meshes or full 3D meshes.
+pub fn write_vtk(mesh: &Mesh, output_path: &Path) -> Result<()> {
+    log::info!(
+        "Writing mesh with {} elements to {:?}",
+        mesh.num_elements(),
+        output_path
+    );
+
+    // Create point array from nodes
+    let points: Vec<f64> = mesh
+        .nodes
+        .iter()
+        .flat_map(|p| vec![p.x, p.y, p.z])
+        .collect();
+
+    // Create cell connectivity for hex elements
+    let mut connectivity = Vec::new();
+    for elem in &mesh.elements {
+        connectivity.extend_from_slice(&elem.node_ids.map(|id| id as u64));
+    }
+
+    // All cells are hexes (VTK_HEXAHEDRON = 12)
+    let cell_types = vec![CellType::Hexahedron; mesh.elements.len()];
+
+    // Create cells with offsets (each hex has 8 nodes)
+    let cells = Cells {
+        cell_verts: VertexNumbers::XML {
+            connectivity,
+            offsets: (0..mesh.elements.len())
+                .map(|i| ((i + 1) * 8) as u64)
+                .collect(),
+        },
+        types: cell_types,
+    };
+
+    // Create unstructured grid piece
+    let ugrid = UnstructuredGridPiece {
+        points: IOBuffer::F64(points),
+        cells,
+        data: Attributes::new(),
+    };
+
+    // Create the Vtk model
+    let vtk = Vtk {
+        version: Version::new((4, 2)),
+        title: "Hexahedral mesh".to_string(),
+        byte_order: ByteOrder::LittleEndian,
+        data: DataSet::UnstructuredGrid {
+            pieces: vec![Piece::Inline(Box::new(ugrid))],
+            meta: None,
+        },
+        file_path: None,
+    };
+
+    // Write to file
+    vtk.export(output_path)
+        .map_err(|e| ContactDetectorError::VtkError(format!("Failed to write VTK file: {}", e)))?;
+
+    log::info!("Successfully wrote VTK file to {:?}", output_path);
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -43,7 +43,7 @@ vtkio = "0.6"
 
 # Spatial indexing for contact detection
 # Using kiddo as a high-performance k-d tree for nearest neighbor searches
-kiddo = "4.2"
+kiddo = "5.2"
 
 # Parallelization for performance (optional)
 rayon = { version = "1.10", optional = true }

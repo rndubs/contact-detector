@@ -109,6 +109,143 @@ pub fn write_surfaces_to_vtu(surfaces: &[SurfaceMesh], output_dir: &Path) -> Res
     Ok(())
 }
 
+/// Write surface mesh with contact pair metadata to VTU
+pub fn write_surface_with_contact_metadata(
+    surface: &SurfaceMesh,
+    results: &crate::contact::ContactResults,
+    _metrics: &crate::contact::SurfaceMetrics,
+    output_path: &Path,
+) -> Result<()> {
+
+    log::info!(
+        "Writing surface '{}' with contact metadata to {:?}",
+        surface.part_name,
+        output_path
+    );
+
+    // Create point array from nodes
+    let points: Vec<f64> = surface
+        .nodes
+        .iter()
+        .flat_map(|p| vec![p.x, p.y, p.z])
+        .collect();
+
+    // Create cell connectivity for quad faces
+    let mut connectivity = Vec::new();
+    for face in &surface.faces {
+        connectivity.extend_from_slice(&face.node_ids.map(|id| id as u64));
+    }
+
+    // All cells are quads
+    let cell_types = vec![CellType::Quad; surface.faces.len()];
+
+    // Create cells
+    let cells = Cells {
+        cell_verts: VertexNumbers::XML {
+            connectivity,
+            offsets: (0..surface.faces.len())
+                .map(|i| ((i + 1) * 4) as u64)
+                .collect(),
+        },
+        types: cell_types,
+    };
+
+    // Create unstructured grid piece
+    let mut ugrid = UnstructuredGridPiece {
+        points: IOBuffer::F64(points),
+        cells,
+        data: Attributes::new(),
+    };
+
+    // Add face normals as cell data
+    let normal_data: Vec<f64> = surface
+        .face_normals
+        .iter()
+        .flat_map(|n| vec![n.x, n.y, n.z])
+        .collect();
+
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "normals".into(),
+        elem: ElementType::Vectors,
+        data: IOBuffer::F64(normal_data),
+    }));
+
+    // Add face areas
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "area".into(),
+        elem: ElementType::Scalars {
+            num_comp: 1,
+            lookup_table: None,
+        },
+        data: IOBuffer::F64(surface.face_areas.clone()),
+    }));
+
+    // Create a map from face index to contact pair
+    let mut face_to_pair = vec![-1i32; surface.faces.len()];
+    let mut face_distance = vec![0.0f64; surface.faces.len()];
+    let mut face_angle = vec![0.0f64; surface.faces.len()];
+
+    for (pair_idx, pair) in results.pairs.iter().enumerate() {
+        face_to_pair[pair.surface_a_face_id] = pair_idx as i32;
+        face_distance[pair.surface_a_face_id] = pair.distance;
+        face_angle[pair.surface_a_face_id] = pair.normal_angle;
+    }
+
+    // Add contact pair ID as cell data
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "pair_id".into(),
+        elem: ElementType::Scalars {
+            num_comp: 1,
+            lookup_table: None,
+        },
+        data: IOBuffer::I32(face_to_pair),
+    }));
+
+    // Add distance as cell data
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "distance".into(),
+        elem: ElementType::Scalars {
+            num_comp: 1,
+            lookup_table: None,
+        },
+        data: IOBuffer::F64(face_distance),
+    }));
+
+    // Add normal angle as cell data
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "normal_angle".into(),
+        elem: ElementType::Scalars {
+            num_comp: 1,
+            lookup_table: None,
+        },
+        data: IOBuffer::F64(face_angle),
+    }));
+
+    // Note: Surface-level metrics are printed to console and can be accessed via the metrics parameter
+    // VTK file format limitations prevent easy embedding of arbitrary metadata
+    // Cell data (per-face data) is included above
+
+    // Create the Vtk model
+    let vtk = Vtk {
+        version: Version::new((4, 2)),
+        title: format!("Surface mesh with contact data: {}", surface.part_name),
+        byte_order: ByteOrder::LittleEndian,
+        data: DataSet::UnstructuredGrid {
+            pieces: vec![Piece::Inline(Box::new(ugrid))],
+            meta: None,
+        },
+        file_path: None,
+    };
+
+    // Write to file
+    vtk.export(output_path)
+        .map_err(|e| ContactDetectorError::VtkError(format!("Failed to write VTU file: {}", e)))?;
+
+    log::info!("Successfully wrote VTU file with contact metadata to {:?}", output_path);
+
+    Ok(())
+}
+
 /// Sanitize a string to be a valid filename
 fn sanitize_filename(name: &str) -> String {
     name.chars()

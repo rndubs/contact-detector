@@ -101,20 +101,141 @@ fn group_by_block(
             .push(*face);
     }
 
-    // Build SurfaceMesh for each block
+    // Build SurfaceMesh for each block, further subdividing by connectivity and coplanarity
     let mut surfaces = Vec::new();
     for (block_name, faces) in block_faces {
         log::info!(
-            "Building surface mesh for block '{}' with {} faces",
+            "Subdividing block '{}' with {} faces into surface patches",
             block_name,
             faces.len()
         );
 
-        let surface = build_surface_mesh(block_name, faces, &mesh.nodes)?;
-        surfaces.push(surface);
+        // Subdivide faces into coplanar surface patches
+        let surface_patches = subdivide_into_surface_patches(&faces, &mesh.nodes, &block_name)?;
+
+        log::info!(
+            "Block '{}' subdivided into {} surface patches",
+            block_name,
+            surface_patches.len()
+        );
+
+        surfaces.extend(surface_patches);
     }
 
     Ok(surfaces)
+}
+
+/// Subdivide a set of boundary faces into surface patches based on connectivity and coplanarity
+fn subdivide_into_surface_patches(
+    faces: &[QuadFace],
+    nodes: &[Point],
+    block_name: &str,
+) -> Result<Vec<SurfaceMesh>> {
+    use std::collections::{HashSet, VecDeque};
+
+    if faces.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Maximum angle (in degrees) between normals to be considered coplanar
+    const MAX_COPLANAR_ANGLE: f64 = 10.0;
+
+    // Build face adjacency graph (which faces share edges)
+    let face_adjacency = build_boundary_face_adjacency(faces);
+
+    // Compute normals for all faces (needed for coplanarity check)
+    let face_normals: Vec<_> = faces
+        .iter()
+        .map(|face| compute_face_normal(face, nodes))
+        .collect::<Result<Vec<_>>>()?;
+
+    // Group faces by connectivity and coplanarity using BFS
+    let mut visited = HashSet::new();
+    let mut surface_patches = Vec::new();
+
+    for (seed_idx, _seed_face) in faces.iter().enumerate() {
+        if visited.contains(&seed_idx) {
+            continue;
+        }
+
+        // Start a new surface patch with this seed face
+        let mut patch_faces = Vec::new();
+        let mut queue = VecDeque::new();
+        queue.push_back(seed_idx);
+        visited.insert(seed_idx);
+
+        let seed_normal = &face_normals[seed_idx];
+
+        // BFS to find all connected and coplanar faces
+        while let Some(current_idx) = queue.pop_front() {
+            patch_faces.push(faces[current_idx]);
+
+            // Check all adjacent faces
+            if let Some(adjacent_indices) = face_adjacency.get(&current_idx) {
+                for &adj_idx in adjacent_indices {
+                    if visited.contains(&adj_idx) {
+                        continue;
+                    }
+
+                    // Check if adjacent face is coplanar with seed
+                    let adj_normal = &face_normals[adj_idx];
+                    let angle = crate::mesh::geometry::angle_between_vectors(seed_normal, adj_normal);
+
+                    if angle <= MAX_COPLANAR_ANGLE {
+                        visited.insert(adj_idx);
+                        queue.push_back(adj_idx);
+                    }
+                }
+            }
+        }
+
+        // Create a surface mesh for this patch
+        let patch_name = format!("{}:patch_{}", block_name, surface_patches.len());
+        let surface = build_surface_mesh(patch_name, patch_faces, nodes)?;
+        surface_patches.push(surface);
+    }
+
+    Ok(surface_patches)
+}
+
+/// Build adjacency graph for boundary faces (which faces share edges)
+fn build_boundary_face_adjacency(faces: &[QuadFace]) -> HashMap<usize, Vec<usize>> {
+    use std::collections::HashMap;
+
+    // Map from edge (as canonical pair of node IDs) to face indices
+    let mut edge_to_faces: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+
+    for (face_idx, face) in faces.iter().enumerate() {
+        // Get all 4 edges of the quad face
+        let edges = [
+            (face.node_ids[0], face.node_ids[1]),
+            (face.node_ids[1], face.node_ids[2]),
+            (face.node_ids[2], face.node_ids[3]),
+            (face.node_ids[3], face.node_ids[0]),
+        ];
+
+        for (n1, n2) in edges {
+            // Use canonical form (smaller node first)
+            let edge = if n1 < n2 { (n1, n2) } else { (n2, n1) };
+            edge_to_faces.entry(edge).or_default().push(face_idx);
+        }
+    }
+
+    // Build adjacency map: face_idx -> list of adjacent face indices
+    let mut adjacency: HashMap<usize, Vec<usize>> = HashMap::new();
+
+    for face_indices in edge_to_faces.values() {
+        if face_indices.len() == 2 {
+            // Two faces share this edge - they are adjacent
+            let face_a = face_indices[0];
+            let face_b = face_indices[1];
+
+            adjacency.entry(face_a).or_default().push(face_b);
+            adjacency.entry(face_b).or_default().push(face_a);
+        }
+    }
+
+    adjacency
 }
 
 /// Build a SurfaceMesh from faces and nodes
@@ -261,9 +382,19 @@ mod tests {
         let mesh = make_single_hex_mesh();
         let surfaces = extract_surface(&mesh).unwrap();
 
-        assert_eq!(surfaces.len(), 1);
-        assert_eq!(surfaces[0].faces.len(), 6); // Hex has 6 faces
-        assert_eq!(surfaces[0].part_name, "Block1");
+        // With surface patch subdivision, each face of the hex becomes a separate surface
+        // since they are perpendicular to each other (not coplanar)
+        assert_eq!(surfaces.len(), 6);
+
+        // Each surface patch should have 1 face
+        for surface in &surfaces {
+            assert_eq!(surface.faces.len(), 1);
+            assert!(surface.part_name.starts_with("Block1:patch_"));
+        }
+
+        // Total faces should still be 6
+        let total_faces: usize = surfaces.iter().map(|s| s.faces.len()).sum();
+        assert_eq!(total_faces, 6);
     }
 
     #[test]

@@ -1,7 +1,13 @@
-#!/usr/bin/env python3
+# /// script
+# dependencies = [
+#  "numpy",
+#  "netCDF4",
+# ]
+# ///
 """
 Simple script to inspect Exodus II file structure.
-Requires: pip install netCDF4 numpy
+Run this script with uv so it will install the dependencies for you:
+    - uv run inspect_exodus.py
 """
 
 import sys

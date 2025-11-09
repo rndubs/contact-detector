@@ -167,5 +167,17 @@ pub enum Commands {
         /// Output directory for results
         #[arg(short, long, value_name = "DIR")]
         output: PathBuf,
+
+        /// Export contact metadata to JSON file
+        #[arg(long)]
+        export_metadata: bool,
+
+        /// Write detected contact sidesets back to Exodus file
+        #[arg(long)]
+        export_sidesets: bool,
+
+        /// Visualize contact surfaces overlaid on full skinned mesh
+        #[arg(long)]
+        visualize_with_skin: bool,
     },
 }

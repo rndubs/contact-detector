@@ -74,6 +74,9 @@ fn main() -> Result<()> {
             max_angle,
             min_pairs,
             output,
+            export_metadata,
+            export_sidesets,
+            visualize_with_skin,
         } => cmd_auto_contact(
             input,
             max_gap,
@@ -82,6 +85,9 @@ fn main() -> Result<()> {
             min_pairs,
             output,
             vtk_version,
+            export_metadata,
+            export_sidesets,
+            visualize_with_skin,
         ),
     }
 }
@@ -487,11 +493,17 @@ fn cmd_auto_contact(
     min_pairs: usize,
     output: std::path::PathBuf,
     vtk_version: Option<(u8, u8)>,
+    export_metadata: bool,
+    export_sidesets: bool,
+    visualize_with_skin: bool,
 ) -> Result<()> {
     use contact_detector::contact::{detect_contact_pairs, ContactCriteria, SurfaceMetrics};
-    use contact_detector::io::write_surface_with_contact_metadata;
+    use contact_detector::io::{write_surface_with_contact_metadata, ContactMetadata};
     use contact_detector::mesh::extract_surface;
     use indicatif::{ProgressBar, ProgressStyle};
+
+    #[cfg(feature = "exodus")]
+    use contact_detector::io::{add_contact_sidesets_to_mesh, write_contact_surfaces_with_skin, write_exodus};
 
     println!("{}", "=".repeat(60));
     println!("AUTOMATIC CONTACT DETECTION");
@@ -574,7 +586,6 @@ fn cmd_auto_contact(
     );
 
     let mut detected_pairs = Vec::new();
-    let mut test_count = 0;
 
     // Test all unique pairs (i, j) where i < j
     for i in 0..num_surfaces {
@@ -590,12 +601,14 @@ fn cmd_auto_contact(
             // Check if this pair has significant contact
             if results.num_pairs() >= min_pairs {
                 let metrics_a = SurfaceMetrics::compute(&results, surface_a);
+                let metrics_b = SurfaceMetrics::compute(&results, surface_b);
 
                 detected_pairs.push((
                     surface_a.part_name.clone(),
                     surface_b.part_name.clone(),
                     results,
                     metrics_a,
+                    metrics_b,
                     i,
                     j,
                 ));
@@ -608,13 +621,23 @@ fn cmd_auto_contact(
                 );
             }
 
-            test_count += 1;
             pb.inc(1);
         }
     }
 
     pb.finish_with_message("Complete");
     println!();
+
+    // Initialize metadata if export requested
+    let mut metadata = if export_metadata {
+        Some(ContactMetadata::new(
+            input.to_string_lossy().to_string(),
+            &criteria,
+            min_pairs,
+        ))
+    } else {
+        None
+    };
 
     // Report results
     println!("{}", "=".repeat(60));
@@ -640,7 +663,7 @@ fn cmd_auto_contact(
         println!();
 
         // Write output files for each detected pair
-        for (idx, (part_a, part_b, results, metrics_a, i, j)) in
+        for (idx, (part_a, part_b, results, metrics_a, metrics_b, i, j)) in
             detected_pairs.iter().enumerate()
         {
             println!(
@@ -657,6 +680,18 @@ fn cmd_auto_contact(
             println!("  Min distance:    {:.6}", metrics_a.min_distance);
             println!("  Max distance:    {:.6}", metrics_a.max_distance);
 
+            // Add to metadata if export requested
+            if let Some(ref mut meta) = metadata {
+                meta.add_contact_pair(
+                    idx + 1,
+                    &surfaces[*i],
+                    &surfaces[*j],
+                    results,
+                    metrics_a,
+                    metrics_b,
+                );
+            }
+
             // Generate output filename
             let output_filename = format!(
                 "contact_{}_{}.vtu",
@@ -666,17 +701,92 @@ fn cmd_auto_contact(
 
             let output_path = output.join(&output_filename);
 
-            // Write results
-            write_surface_with_contact_metadata(
-                &surfaces[*i],
-                results,
-                metrics_a,
-                &output_path,
-                vtk_version,
-            )?;
+            // Write results - use enhanced visualization if requested
+            if visualize_with_skin {
+                #[cfg(feature = "exodus")]
+                {
+                    write_contact_surfaces_with_skin(
+                        &surfaces[*i],
+                        &surfaces[*j],
+                        results,
+                        &surfaces,
+                        part_a,
+                        part_b,
+                        idx + 1,
+                        &output_path,
+                        vtk_version,
+                    )?;
+                }
+                #[cfg(not(feature = "exodus"))]
+                {
+                    log::warn!("--visualize-with-skin requires exodus feature, falling back to standard output");
+                    write_surface_with_contact_metadata(
+                        &surfaces[*i],
+                        results,
+                        metrics_a,
+                        &output_path,
+                        vtk_version,
+                    )?;
+                }
+            } else {
+                write_surface_with_contact_metadata(
+                    &surfaces[*i],
+                    results,
+                    metrics_a,
+                    &output_path,
+                    vtk_version,
+                )?;
+            }
 
             println!("  Output:          {}", output_filename);
             println!();
+        }
+
+        // Export metadata if requested
+        if let Some(meta) = metadata {
+            let metadata_path = output.join("contact_metadata.json");
+            meta.export(&metadata_path)?;
+            println!("Metadata exported to: {}", metadata_path.display());
+            println!();
+        }
+
+        // Export sidesets if requested
+        if export_sidesets {
+            #[cfg(feature = "exodus")]
+            {
+                println!("Exporting contact sidesets to Exodus file...");
+
+                // Create a copy of the mesh to add sidesets
+                let mut mesh_with_sidesets = mesh.clone();
+
+                // Collect all contact surfaces with their sideset names
+                let mut contact_surfaces = Vec::new();
+                for (part_a, part_b, _results, _metrics_a, _metrics_b, i, j) in
+                    detected_pairs.iter()
+                {
+                    let sideset_name_a = format!("auto_contact_{}", sanitize_filename(part_a));
+                    let sideset_name_b = format!("auto_contact_{}", sanitize_filename(part_b));
+
+                    contact_surfaces.push((sideset_name_a, &surfaces[*i]));
+                    contact_surfaces.push((sideset_name_b, &surfaces[*j]));
+                }
+
+                // Add sidesets to mesh
+                add_contact_sidesets_to_mesh(&mut mesh_with_sidesets, &contact_surfaces, &mesh)?;
+
+                // Write mesh with sidesets
+                let exodus_output = output.join("mesh_with_contact_sidesets.exo");
+                write_exodus(&mesh_with_sidesets, &exodus_output)?;
+
+                println!("Mesh with contact sidesets written to: {}", exodus_output.display());
+                println!();
+            }
+            #[cfg(not(feature = "exodus"))]
+            {
+                println!("WARNING: --export-sidesets requires exodus feature");
+                println!("Skipping sideset export.");
+                println!();
+            }
         }
 
         println!("{}", "=".repeat(60));

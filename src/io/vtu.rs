@@ -280,6 +280,228 @@ fn sanitize_filename(name: &str) -> String {
         .collect()
 }
 
+/// Write contact surfaces overlaid on full skinned mesh to VTU file
+///
+/// This writes both contact surfaces A and B along with the complete skin of the mesh
+/// for spatial context. Each face is labeled with a contact_region_id:
+/// - 0: Non-contact skin faces
+/// - Positive values: Contact region IDs (1, 2, 3, ...)
+pub fn write_contact_surfaces_with_skin(
+    _surface_a: &SurfaceMesh,
+    _surface_b: &SurfaceMesh,
+    results: &crate::contact::ContactResults,
+    all_surfaces: &[SurfaceMesh],
+    surface_a_name: &str,
+    surface_b_name: &str,
+    contact_region_id: usize,
+    output_path: &Path,
+    vtk_version: Option<(u8, u8)>,
+) -> Result<()> {
+    let version = vtk_version.unwrap_or(DEFAULT_VTK_VERSION);
+    log::info!(
+        "Writing contact surfaces with skin overlay to {:?} (VTK version {}.{})",
+        output_path,
+        version.0,
+        version.1
+    );
+
+    // Combine all surfaces into a single mesh
+    // We need to track which nodes and faces come from which surface
+    let mut all_nodes = Vec::new();
+    let mut all_faces = Vec::new();
+    let mut all_normals = Vec::new();
+    let mut all_areas = Vec::new();
+    let mut contact_region_ids = Vec::new();
+    let mut surface_names = Vec::new();
+
+    let mut node_offset = 0;
+
+    // Add all skin surfaces
+    for surface in all_surfaces {
+        // Add nodes
+        all_nodes.extend_from_slice(&surface.nodes);
+
+        // Add faces with adjusted node indices
+        for face in &surface.faces {
+            let mut adjusted_face = *face;
+            for node_id in &mut adjusted_face.node_ids {
+                *node_id += node_offset;
+            }
+            all_faces.push(adjusted_face);
+        }
+
+        // Add normals and areas
+        all_normals.extend_from_slice(&surface.face_normals);
+        all_areas.extend_from_slice(&surface.face_areas);
+
+        // Determine contact region ID for this surface
+        let region_id = if surface.part_name == surface_a_name {
+            contact_region_id as i32 // Surface A gets the contact region ID
+        } else if surface.part_name == surface_b_name {
+            contact_region_id as i32 // Surface B gets the same contact region ID
+        } else {
+            0 // Non-contact surfaces get 0
+        };
+
+        // Add region IDs and names for each face
+        for _ in 0..surface.faces.len() {
+            contact_region_ids.push(region_id);
+            surface_names.push(surface.part_name.clone());
+        }
+
+        node_offset += surface.nodes.len();
+    }
+
+    // Create point array from nodes
+    let points: Vec<f64> = all_nodes
+        .iter()
+        .flat_map(|p| vec![p.x, p.y, p.z])
+        .collect();
+
+    // Create cell connectivity for quad faces
+    let mut connectivity = Vec::new();
+    for face in &all_faces {
+        connectivity.extend_from_slice(&face.node_ids.map(|id| id as u64));
+    }
+
+    // All cells are quads
+    let cell_types = vec![CellType::Quad; all_faces.len()];
+
+    // Create cells
+    let cells = Cells {
+        cell_verts: VertexNumbers::XML {
+            connectivity,
+            offsets: (0..all_faces.len())
+                .map(|i| ((i + 1) * 4) as u64)
+                .collect(),
+        },
+        types: cell_types,
+    };
+
+    // Create unstructured grid piece
+    let mut ugrid = UnstructuredGridPiece {
+        points: IOBuffer::F64(points),
+        cells,
+        data: Attributes::new(),
+    };
+
+    // Add face normals as cell data
+    let normal_data: Vec<f64> = all_normals
+        .iter()
+        .flat_map(|n| vec![n.x, n.y, n.z])
+        .collect();
+
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "normals".into(),
+        elem: ElementType::Vectors,
+        data: IOBuffer::F64(normal_data),
+    }));
+
+    // Add face areas
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "area".into(),
+        elem: ElementType::Scalars {
+            num_comp: 1,
+            lookup_table: None,
+        },
+        data: IOBuffer::F64(all_areas),
+    }));
+
+    // Add contact region IDs
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "contact_region_id".into(),
+        elem: ElementType::Scalars {
+            num_comp: 1,
+            lookup_table: None,
+        },
+        data: IOBuffer::I32(contact_region_ids),
+    }));
+
+    // Add contact pair data (distance and angle) for contact faces
+    // Create maps for face-to-pair metadata
+    let mut face_to_distance = vec![0.0f64; all_faces.len()];
+    let mut face_to_angle = vec![0.0f64; all_faces.len()];
+    let mut is_paired = vec![0i32; all_faces.len()];
+
+    // Track which faces in the combined mesh correspond to surface A
+    let mut surface_a_start = 0;
+    let mut current_face_idx = 0;
+
+    for surface in all_surfaces.iter() {
+        if surface.part_name == surface_a_name {
+            surface_a_start = current_face_idx;
+            break;
+        }
+        current_face_idx += surface.faces.len();
+    }
+
+    // Populate pair data for surface A contact faces
+    for pair in &results.pairs {
+        let face_idx = surface_a_start + pair.surface_a_face_id;
+        if face_idx < all_faces.len() {
+            face_to_distance[face_idx] = pair.distance;
+            face_to_angle[face_idx] = pair.normal_angle;
+            is_paired[face_idx] = 1;
+        }
+    }
+
+    // Add distance field
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "distance".into(),
+        elem: ElementType::Scalars {
+            num_comp: 1,
+            lookup_table: None,
+        },
+        data: IOBuffer::F64(face_to_distance),
+    }));
+
+    // Add normal angle field
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "normal_angle".into(),
+        elem: ElementType::Scalars {
+            num_comp: 1,
+            lookup_table: None,
+        },
+        data: IOBuffer::F64(face_to_angle),
+    }));
+
+    // Add is_paired field
+    ugrid.data.cell.push(Attribute::DataArray(DataArray {
+        name: "is_paired".into(),
+        elem: ElementType::Scalars {
+            num_comp: 1,
+            lookup_table: None,
+        },
+        data: IOBuffer::I32(is_paired),
+    }));
+
+    // Create the Vtk model
+    let vtk = Vtk {
+        version: Version::new(version),
+        title: format!(
+            "Contact surfaces with skin: {} ↔ {}",
+            surface_a_name, surface_b_name
+        ),
+        byte_order: ByteOrder::LittleEndian,
+        data: DataSet::UnstructuredGrid {
+            pieces: vec![Piece::Inline(Box::new(ugrid))],
+            meta: None,
+        },
+        file_path: None,
+    };
+
+    // Write to file
+    vtk.export(output_path)
+        .map_err(|e| ContactDetectorError::VtkError(format!("Failed to write VTU file: {}", e)))?;
+
+    log::info!(
+        "Successfully wrote VTU file with contact surfaces and skin to {:?}",
+        output_path
+    );
+
+    Ok(())
+}
+
 /// Write a full mesh (with hex elements) to a VTK file
 ///
 /// This is useful for visualizing synthetic meshes or full 3D meshes.
@@ -388,6 +610,110 @@ mod tests {
 
         let result = write_surface_to_vtu(&surface, &output_path, None);
         assert!(result.is_ok());
+
+        // Clean up
+        let _ = std::fs::remove_file(&output_path);
+    }
+
+    #[test]
+    fn test_write_contact_surfaces_with_skin() {
+        use crate::contact::{ContactCriteria, ContactPair, ContactResults};
+
+        // Create test surfaces
+        let surface_a = make_test_surface();
+        let mut surface_b = make_test_surface();
+        surface_b.part_name = "TestBlock2".to_string();
+
+        // Create contact results
+        let criteria = ContactCriteria::new(0.01, 0.01, 30.0);
+        let mut results = ContactResults::new(
+            "TestBlock".to_string(),
+            "TestBlock2".to_string(),
+            criteria,
+        );
+        results.pairs.push(ContactPair {
+            surface_a_face_id: 0,
+            surface_b_face_id: 0,
+            distance: 0.0,
+            normal_angle: 180.0,
+            contact_point: Point::new(0.5, 0.5, 0.0),
+        });
+
+        // Create all surfaces (skin)
+        let all_surfaces = vec![surface_a.clone(), surface_b.clone()];
+
+        let temp_dir = std::env::temp_dir();
+        let output_path = temp_dir.join("test_contact_with_skin.vtu");
+
+        let result = write_contact_surfaces_with_skin(
+            &surface_a,
+            &surface_b,
+            &results,
+            &all_surfaces,
+            "TestBlock",
+            "TestBlock2",
+            1,
+            &output_path,
+            None,
+        );
+
+        assert!(result.is_ok());
+
+        // Verify file was created
+        assert!(output_path.exists());
+
+        // Clean up
+        let _ = std::fs::remove_file(&output_path);
+    }
+
+    #[test]
+    fn test_write_contact_surfaces_with_skin_multiple_surfaces() {
+        use crate::contact::{ContactCriteria, ContactPair, ContactResults};
+
+        // Create multiple test surfaces
+        let surface_a = make_test_surface();
+
+        let mut surface_b = make_test_surface();
+        surface_b.part_name = "TestBlock2".to_string();
+
+        let mut surface_c = make_test_surface();
+        surface_c.part_name = "TestBlock3".to_string();
+
+        // Create contact results
+        let criteria = ContactCriteria::new(0.01, 0.01, 30.0);
+        let mut results = ContactResults::new(
+            "TestBlock".to_string(),
+            "TestBlock2".to_string(),
+            criteria,
+        );
+        results.pairs.push(ContactPair {
+            surface_a_face_id: 0,
+            surface_b_face_id: 0,
+            distance: 0.001,
+            normal_angle: 175.0,
+            contact_point: Point::new(0.5, 0.5, 0.0),
+        });
+
+        // All surfaces including non-contact surface
+        let all_surfaces = vec![surface_a.clone(), surface_b.clone(), surface_c];
+
+        let temp_dir = std::env::temp_dir();
+        let output_path = temp_dir.join("test_contact_with_skin_multi.vtu");
+
+        let result = write_contact_surfaces_with_skin(
+            &surface_a,
+            &surface_b,
+            &results,
+            &all_surfaces,
+            "TestBlock",
+            "TestBlock2",
+            1,
+            &output_path,
+            None,
+        );
+
+        assert!(result.is_ok());
+        assert!(output_path.exists());
 
         // Clean up
         let _ = std::fs::remove_file(&output_path);

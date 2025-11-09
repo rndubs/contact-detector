@@ -650,21 +650,22 @@ contact-detector/
 ```
 
 ### Phase 10: Surface Patch Merging & Watertight Visualization
-**Goal**: Merge fragmented surface patches into single, coherent, watertight surfaces per element block for clean visualization
+**Goal**: Merge fragmented surface patches into coherent, watertight surfaces for each element block for clean visualization
 
 #### Background:
 The current surface extraction algorithm creates separate patches for every connected component of boundary faces. This results in excessive fragmentation (e.g., 50+ patches for a simple cube+cylinder mesh). While this doesn't break contact detection functionality, it creates issues for visualization and makes the mesh harder to inspect.
 
 #### Requirements:
-1. **Single Surface Per Block**
-   - Each element block should produce exactly ONE watertight surface mesh
-   - Merge all boundary faces belonging to the same block into a single coherent surface
+1. **Merged block surface meshes**
+   - Merge all boundary faces belonging to the same surface into a single coherent surface
    - Preserve all topology (vertices, faces, connectivity)
+   - A mesh block may have more than one surface. For example, a single cube could have up to six surfaces if there are six other cubes in contact with the central cube
 
 2. **Watertight Guarantees**
-   - The merged surface must be topologically closed (no holes, no gaps)
+   - Each merged surface must be connected to another surface by at least one edge
    - All edges must be shared by exactly 2 faces (manifold surface)
    - Surface must properly represent the outer boundary of the volume
+   - The surface must be topologically smooth; for example, all six sides of a cube should not be merged into one contact surface by default
 
 3. **Efficient Mesh Representation**
    - Deduplicate vertices that are shared between original patches
@@ -672,9 +673,7 @@ The current surface extraction algorithm creates separate patches for every conn
    - Preserve face normals and geometric properties
 
 4. **Updated `skin` Command Behavior**
-   - Default behavior: Output one VTU file per element block (watertight surface)
-   - Add `--split-patches` flag to enable old behavior (fragmented patches)
-   - Maintain backward compatibility for contact detection workflow
+   - Default behavior: Output one VTU file for each contact pair, and one mesh file
 
 #### Tasks:
 - [ ] **Surface Merging Algorithm**

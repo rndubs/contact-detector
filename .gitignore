@@ -23,4 +23,7 @@ test-results/
 *.vtk
 *.vtp
 *.vtm
+
+# Exclude exodus output files but keep test data
 *.exo
+!test-data/*.exo

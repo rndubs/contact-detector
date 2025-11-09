@@ -54,14 +54,35 @@ def create_exodus_file(filename, num_dim, num_nodes, num_elem, num_el_blk, num_s
     eb_prop1 = nc.createVariable('eb_prop1', 'i4', ('num_el_blk',))
     eb_prop1.setncattr('name', 'ID')
 
+    # Create element block names variable
+    eb_names = nc.createVariable('eb_names', 'c', ('num_el_blk', 'len_string'))
+
     # Create side set structures if requested
     if num_side_sets > 0:
         nc.createDimension('num_side_sets', num_side_sets)
         ss_status = nc.createVariable('ss_status', 'i4', ('num_side_sets',))
         ss_prop1 = nc.createVariable('ss_prop1', 'i4', ('num_side_sets',))
         ss_prop1.setncattr('name', 'ID')
+        # Create sideset names variable
+        ss_names = nc.createVariable('ss_names', 'c', ('num_side_sets', 'len_string'))
 
     return nc
+
+
+def set_block_names(nc, block_names):
+    """
+    Set element block names in the Exodus file.
+
+    Parameters:
+    - nc: netCDF4 Dataset object
+    - block_names: List of block name strings
+    """
+    eb_names_var = nc.variables['eb_names']
+    for i, name in enumerate(block_names):
+        # Convert string to bytes and pad with spaces
+        name_bytes = name.encode('utf-8')
+        padded = name_bytes + b' ' * (33 - len(name_bytes))
+        eb_names_var[i, :] = list(padded[:33])
 
 
 def add_sideset(nc, sideset_id, sideset_num, elem_list, side_list):
@@ -146,6 +167,9 @@ def generate_single_hex_contact():
     nc.variables['eb_status'][:] = [1, 1]
     nc.variables['eb_prop1'][:] = [1, 2]
 
+    # Set block names with materials
+    set_block_names(nc, ['Steel', 'Aluminum'])
+
     nc.close()
     print(f"  Created: {filename}")
 
@@ -202,6 +226,9 @@ def generate_single_hex_contact_with_sidesets():
     # Sideset 2: Bottom face of second hex (element 2, side 1)
     add_sideset(nc, 1, 1, [1], [6])  # Element 1, top face
     add_sideset(nc, 2, 2, [2], [1])  # Element 2, bottom face
+
+    # Set block names with materials
+    set_block_names(nc, ['Steel', 'Aluminum'])
 
     nc.close()
     print(f"  Created: {filename} (with sidesets for contact surfaces)")
@@ -326,6 +353,9 @@ def generate_aligned_cubes_10x10x10():
 
     nc.variables['eb_status'][:] = [1, 1]
     nc.variables['eb_prop1'][:] = [1, 2]
+
+    # Set block names with materials
+    set_block_names(nc, ['Steel', 'Aluminum'])
 
     nc.close()
     print(f"  Created: {filename}")
@@ -464,6 +494,9 @@ def generate_aligned_cubes_10x10x10_with_sidesets():
     add_sideset(nc, 1, 1, elem_list_1, side_list_1)
     add_sideset(nc, 2, 2, elem_list_2, side_list_2)
 
+    # Set block names with materials
+    set_block_names(nc, ['Steel', 'Aluminum'])
+
     nc.close()
     print(f"  Created: {filename} (with sidesets for contact surfaces)")
 
@@ -577,6 +610,9 @@ def generate_rotated_cube_contact():
 
     nc.variables['eb_status'][:] = [1, 1]
     nc.variables['eb_prop1'][:] = [1, 2]
+
+    # Set block names with materials
+    set_block_names(nc, ['Steel', 'Aluminum'])
 
     nc.close()
     print(f"  Created: {filename}")
@@ -716,6 +752,9 @@ def generate_rotated_cube_contact_with_sidesets():
     add_sideset(nc, 1, 1, elem_list_1, side_list_1)
     add_sideset(nc, 2, 2, elem_list_2, side_list_2)
 
+    # Set block names with materials
+    set_block_names(nc, ['Steel', 'Aluminum'])
+
     nc.close()
     print(f"  Created: {filename} (with sidesets for contact surfaces)")
 
@@ -838,6 +877,9 @@ def generate_cube_cylinder_contact():
 
     nc.variables['eb_status'][:] = [1, 1]
     nc.variables['eb_prop1'][:] = [1, 2]
+
+    # Set block names with materials
+    set_block_names(nc, ['Steel', 'Copper'])
 
     nc.close()
     print(f"  Created: {filename}")
@@ -985,6 +1027,9 @@ def generate_cube_cylinder_contact_with_sidesets():
 
     add_sideset(nc, 1, 1, elem_list_1, side_list_1)
     add_sideset(nc, 2, 2, elem_list_2, side_list_2)
+
+    # Set block names with materials
+    set_block_names(nc, ['Steel', 'Copper'])
 
     nc.close()
     print(f"  Created: {filename} (with sidesets for contact surfaces)")

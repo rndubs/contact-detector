@@ -84,10 +84,12 @@ for mesh_file in "${test_meshes[@]}"; do
 
         # Run automatic contact detection with default parameters
         # max-gap: 0.01, max-penetration: 0.01, max-angle: 30 degrees
+        # --visualize-with-skin includes the full mesh for spatial context
         "$BINARY" auto-contact "$mesh_file" \
             --max-gap 0.01 \
             --max-penetration 0.01 \
             --max-angle 30.0 \
+            --visualize-with-skin \
             -o "$output_dir"
 
         echo -e "${GREEN}✓ Complete${NC}"

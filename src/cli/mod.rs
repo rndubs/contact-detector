@@ -179,5 +179,21 @@ pub enum Commands {
         /// Visualize contact surfaces overlaid on full skinned mesh
         #[arg(long)]
         visualize_with_skin: bool,
+
+        /// Export as multi-block VTM format (default: true)
+        #[arg(long, default_value = "true")]
+        multiblock: bool,
+
+        /// Include nodesets in multi-block output
+        #[arg(long)]
+        export_nodesets: bool,
+
+        /// Include material IDs in volume mesh output
+        #[arg(long)]
+        export_materials: bool,
+
+        /// Include full volume mesh in multi-block output
+        #[arg(long)]
+        export_volume: bool,
     },
 }

@@ -94,6 +94,10 @@ pub struct Mesh {
     /// Maps block name -> element indices
     pub element_blocks: HashMap<String, Vec<usize>>,
 
+    /// Material IDs per element (optional)
+    /// If present, must have same length as elements
+    pub material_ids: Vec<i32>,
+
     /// Node sets (named groups of nodes)
     /// Maps nodeset name -> node indices
     pub node_sets: HashMap<String, Vec<usize>>,
@@ -110,6 +114,7 @@ impl Mesh {
             nodes: Vec::new(),
             elements: Vec::new(),
             element_blocks: HashMap::new(),
+            material_ids: Vec::new(),
             node_sets: HashMap::new(),
             side_sets: HashMap::new(),
         }

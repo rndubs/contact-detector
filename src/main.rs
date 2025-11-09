@@ -77,6 +77,10 @@ fn main() -> Result<()> {
             export_metadata,
             export_sidesets,
             visualize_with_skin,
+            multiblock,
+            export_nodesets,
+            export_materials,
+            export_volume,
         } => cmd_auto_contact(
             input,
             max_gap,
@@ -88,6 +92,10 @@ fn main() -> Result<()> {
             export_metadata,
             export_sidesets,
             visualize_with_skin,
+            multiblock,
+            export_nodesets,
+            export_materials,
+            export_volume,
         ),
     }
 }
@@ -496,6 +504,10 @@ fn cmd_auto_contact(
     export_metadata: bool,
     export_sidesets: bool,
     visualize_with_skin: bool,
+    multiblock: bool,
+    export_nodesets: bool,
+    _export_materials: bool,
+    export_volume: bool,
 ) -> Result<()> {
     use contact_detector::contact::{detect_contact_pairs, ContactCriteria, SurfaceMetrics};
     use contact_detector::io::{write_surface_with_contact_metadata, ContactMetadata};
@@ -701,6 +713,11 @@ fn cmd_auto_contact(
 
             let output_path = output.join(&output_filename);
 
+            // Skip individual file writing if multiblock is enabled
+            if multiblock {
+                continue;
+            }
+
             // Write results - use enhanced visualization if requested
             if visualize_with_skin {
                 #[cfg(feature = "exodus")]
@@ -739,6 +756,59 @@ fn cmd_auto_contact(
             }
 
             println!("  Output:          {}", output_filename);
+            println!();
+        }
+
+        // Export multi-block VTM if requested
+        if multiblock {
+            use contact_detector::io::MultiBlockBuilder;
+            use contact_detector::io::vtu::DEFAULT_VTK_VERSION;
+
+            println!("Generating multi-block VTM dataset...");
+
+            let vtk_ver = vtk_version.unwrap_or(DEFAULT_VTK_VERSION);
+            let mut mb_builder = MultiBlockBuilder::new(&output, "contact_analysis".to_string(), vtk_ver);
+
+            // Add volume mesh if requested
+            if export_volume {
+                println!("  Adding volume mesh...");
+                mb_builder.add_volume_mesh(&mesh)?;
+            }
+
+            // Add sidesets if requested
+            if export_sidesets {
+                println!("  Adding sidesets...");
+                mb_builder.add_sidesets(&mesh)?;
+            }
+
+            // Add nodesets if requested
+            if export_nodesets {
+                println!("  Adding nodesets...");
+                mb_builder.add_nodesets(&mesh)?;
+            }
+
+            // Add contact pairs
+            println!("  Adding contact pairs...");
+            let contact_pair_data: Vec<_> = detected_pairs
+                .iter()
+                .enumerate()
+                .map(|(_idx, (part_a, part_b, results, _metrics_a, _metrics_b, i, j))| {
+                    (
+                        part_a.clone(),
+                        part_b.clone(),
+                        surfaces[*i].clone(),
+                        surfaces[*j].clone(),
+                        results.clone(),
+                    )
+                })
+                .collect();
+
+            mb_builder.add_contact_pairs(&contact_pair_data, 1)?;
+
+            // Write the multi-block meta file
+            mb_builder.write()?;
+
+            println!("Multi-block VTM dataset written to: {}/contact_analysis.vtm", output.display());
             println!();
         }
 

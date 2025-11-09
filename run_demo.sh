@@ -82,14 +82,22 @@ for mesh_file in "${test_meshes[@]}"; do
         echo "  Output directory: $output_dir"
         echo "------------------------------------------------------------"
 
-        # Run automatic contact detection with default parameters
-        # max-gap: 0.01, max-penetration: 0.01, max-angle: 30 degrees
-        # --visualize-with-skin includes the full mesh for spatial context
+        # Run automatic contact detection with Phase 11 multi-block features
+        # --multiblock: Export as hierarchical VTM format (default: true)
+        # --export-metadata: Export JSON metadata for debugging
+        # --export-volume: Include full volume mesh in output
+        # --export-sidesets: Include sidesets (for meshes that have them)
+        # --max-gap: Maximum gap distance (0.01)
+        # --max-penetration: Maximum penetration distance (0.01)
+        # --max-angle: Maximum normal angle in degrees (30)
         "$BINARY" auto-contact "$mesh_file" \
             --max-gap 0.01 \
             --max-penetration 0.01 \
             --max-angle 30.0 \
-            --visualize-with-skin \
+            --multiblock \
+            --export-metadata \
+            --export-volume \
+            --export-sidesets \
             -o "$output_dir"
 
         echo -e "${GREEN}✓ Complete${NC}"
@@ -105,9 +113,19 @@ echo "============================================================"
 echo ""
 echo "Results saved to: $OUTPUT_DIR"
 echo ""
-echo "Files generated:"
-ls -lh "$OUTPUT_DIR"
+echo "Multi-block VTM files generated for each test case:"
+echo "  - contact_analysis.vtm (main file to open in ParaView)"
+echo "  - volume/*.vtu (element blocks)"
+echo "  - contact_pairs/*.vtp (master/slave contact surfaces)"
+echo "  - sidesets/*.vtp (boundary surfaces, if present)"
+echo "  - contact_metadata.json (debugging metadata)"
 echo ""
-echo "To visualize the results, open the result directories in ParaView:"
-echo "  paraview $OUTPUT_DIR/*/contact_pairs.vtu"
+echo "To visualize the results in ParaView, open the VTM files:"
+echo "  paraview $OUTPUT_DIR/*/contact_analysis.vtm"
+echo ""
+echo "ParaView Tips:"
+echo "  - Use the Multiblock Inspector to toggle visibility of blocks"
+echo "  - Apply Threshold filter to MaterialId to isolate element blocks"
+echo "  - Apply Glyph filter to SurfaceNormal to visualize normals"
+echo "  - Filter by ContactPairId to isolate specific contact pairs"
 echo ""

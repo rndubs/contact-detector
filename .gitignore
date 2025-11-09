@@ -18,5 +18,12 @@ Thumbs.db
 # Test outputs
 output/
 results/
+test-results/
 *.vtu
 *.vtk
+*.vtp
+*.vtm
+
+# Exclude exodus output files but keep test data
+*.exo
+!test-data/*.exo

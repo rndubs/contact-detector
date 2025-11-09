@@ -309,8 +309,8 @@ fn cmd_contact(
     use contact_detector::contact::SurfaceMetrics;
     use contact_detector::io::write_surface_with_contact_metadata;
 
-    let metrics_a = SurfaceMetrics::compute(&results, surface_a);
-    let metrics_b = SurfaceMetrics::compute(&results, surface_b);
+    let metrics_a = SurfaceMetrics::compute(&results, surface_a, true);
+    let metrics_b = SurfaceMetrics::compute(&results, surface_b, false);
 
     metrics_a.print_summary(&surface_a.part_name);
     metrics_b.print_summary(&surface_b.part_name);
@@ -428,7 +428,7 @@ fn cmd_analyze(
         let results = detect_contact_pairs(surface_a, surface_b, &pair_config.criteria)?;
 
         // Compute metrics
-        let metrics_a = SurfaceMetrics::compute(&results, surface_a);
+        let metrics_a = SurfaceMetrics::compute(&results, surface_a, true);
 
         // Generate output filename
         let output_filename = pair_config.output_file.clone().unwrap_or_else(|| {
@@ -600,8 +600,8 @@ fn cmd_auto_contact(
 
             // Check if this pair has significant contact
             if results.num_pairs() >= min_pairs {
-                let metrics_a = SurfaceMetrics::compute(&results, surface_a);
-                let metrics_b = SurfaceMetrics::compute(&results, surface_b);
+                let metrics_a = SurfaceMetrics::compute(&results, surface_a, true);
+                let metrics_b = SurfaceMetrics::compute(&results, surface_b, false);
 
                 detected_pairs.push((
                     surface_a.part_name.clone(),

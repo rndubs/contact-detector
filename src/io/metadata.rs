@@ -327,8 +327,8 @@ mod tests {
         results.unpaired_b = vec![5, 6, 7];
 
         // Create metrics
-        let metrics_a = crate::contact::SurfaceMetrics::compute(&results, &surface_a);
-        let metrics_b = crate::contact::SurfaceMetrics::compute(&results, &surface_b);
+        let metrics_a = crate::contact::SurfaceMetrics::compute(&results, &surface_a, true);
+        let metrics_b = crate::contact::SurfaceMetrics::compute(&results, &surface_b, false);
 
         // Add contact pair
         metadata.add_contact_pair(1, &surface_a, &surface_b, &results, &metrics_a, &metrics_b);

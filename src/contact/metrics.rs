@@ -40,7 +40,12 @@ pub struct SurfaceMetrics {
 
 impl SurfaceMetrics {
     /// Compute surface metrics from contact results and surface mesh
-    pub fn compute(results: &ContactResults, surface: &SurfaceMesh) -> Self {
+    ///
+    /// # Arguments
+    /// * `results` - Contact detection results
+    /// * `surface` - Surface mesh to compute metrics for
+    /// * `is_surface_a` - Whether this is surface A (true) or surface B (false)
+    pub fn compute(results: &ContactResults, surface: &SurfaceMesh, is_surface_a: bool) -> Self {
         let total_area: f64 = surface.face_areas.iter().sum();
 
         let mut paired_area = 0.0;
@@ -51,7 +56,14 @@ impl SurfaceMetrics {
 
         // Compute paired area and statistics
         for pair in &results.pairs {
-            let face_area = surface.face_areas[pair.surface_a_face_id];
+            // Get the correct face index based on which surface we're computing for
+            let face_idx = if is_surface_a {
+                pair.surface_a_face_id
+            } else {
+                pair.surface_b_face_id
+            };
+
+            let face_area = surface.face_areas[face_idx];
             paired_area += face_area;
             weighted_distance_sum += pair.distance * face_area;
             angle_sum += pair.normal_angle;
@@ -77,7 +89,13 @@ impl SurfaceMetrics {
         let mut variance_sum = 0.0;
         for pair in &results.pairs {
             let diff = pair.distance - avg_distance;
-            let face_area = surface.face_areas[pair.surface_a_face_id];
+            // Get the correct face index based on which surface we're computing for
+            let face_idx = if is_surface_a {
+                pair.surface_a_face_id
+            } else {
+                pair.surface_b_face_id
+            };
+            let face_area = surface.face_areas[face_idx];
             variance_sum += diff * diff * face_area;
         }
 
@@ -89,6 +107,13 @@ impl SurfaceMetrics {
 
         let unpaired_area = total_area - paired_area;
 
+        // Get the correct unpaired count based on which surface we're computing for
+        let num_unpaired = if is_surface_a {
+            results.unpaired_a.len()
+        } else {
+            results.unpaired_b.len()
+        };
+
         Self {
             total_area,
             paired_area,
@@ -99,7 +124,7 @@ impl SurfaceMetrics {
             max_distance: if num_pairs > 0 { max_dist } else { 0.0 },
             avg_normal_angle,
             num_pairs,
-            num_unpaired: results.unpaired_a.len(),
+            num_unpaired,
         }
     }
 
@@ -185,7 +210,7 @@ mod tests {
     #[test]
     fn test_surface_metrics_computation() {
         let (results, surface) = make_test_data();
-        let metrics = SurfaceMetrics::compute(&results, &surface);
+        let metrics = SurfaceMetrics::compute(&results, &surface, true);
 
         assert_eq!(metrics.total_area, 3.0);
         assert_eq!(metrics.paired_area, 3.0);

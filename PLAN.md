@@ -11,6 +11,7 @@
 - [x] **Phase 7: Automatic Contact Detection** - Added geometry-based automatic contact surface discovery (see [Phase 7](#phase-7-automatic-contact-detection))
 - [x] **Phase 8: Visualization & Metadata Export** - Enhanced visualization, sideset export, and JSON metadata for debugging (see [Phase 8](#phase-8-visualization--metadata-export))
 - [ ] **Phase 9 (Future): CAD Import** - Import meshless CAD geometry from STEP/IGES (see [Phase 9](#phase-9-future-cad-import-stepiges))
+- [ ] **Phase 10: Skinner cleanup** - Surface Patch Merging & Watertight Visualization
 
 ## Executive Summary
 
@@ -647,6 +648,82 @@ contact-detector/
     ├── basic_usage.rs
     └── config.json
 ```
+
+### Phase 10: Surface Patch Merging & Watertight Visualization
+**Goal**: Merge fragmented surface patches into single, coherent, watertight surfaces per element block for clean visualization
+
+#### Background:
+The current surface extraction algorithm creates separate patches for every connected component of boundary faces. This results in excessive fragmentation (e.g., 50+ patches for a simple cube+cylinder mesh). While this doesn't break contact detection functionality, it creates issues for visualization and makes the mesh harder to inspect.
+
+#### Requirements:
+1. **Single Surface Per Block**
+   - Each element block should produce exactly ONE watertight surface mesh
+   - Merge all boundary faces belonging to the same block into a single coherent surface
+   - Preserve all topology (vertices, faces, connectivity)
+
+2. **Watertight Guarantees**
+   - The merged surface must be topologically closed (no holes, no gaps)
+   - All edges must be shared by exactly 2 faces (manifold surface)
+   - Surface must properly represent the outer boundary of the volume
+
+3. **Efficient Mesh Representation**
+   - Deduplicate vertices that are shared between original patches
+   - Maintain quad face topology (no triangulation)
+   - Preserve face normals and geometric properties
+
+4. **Updated `skin` Command Behavior**
+   - Default behavior: Output one VTU file per element block (watertight surface)
+   - Add `--split-patches` flag to enable old behavior (fragmented patches)
+   - Maintain backward compatibility for contact detection workflow
+
+#### Tasks:
+- [ ] **Surface Merging Algorithm**
+  - Implement face aggregation to collect all boundary faces per block
+  - Build unified vertex list with deduplication (hash map by coordinates)
+  - Remap face connectivity to use unified vertex indices
+  - Verify watertight property (each edge used by exactly 2 faces)
+
+- [ ] **CLI Updates**
+  - Modify `skin` command default to output one file per block
+  - Add `--split-patches` flag for fragmented output (old behavior)
+  - Update progress reporting to show "Merging surfaces per block..."
+
+- [ ] **Testing & Validation**
+  - Test with cube_cylinder_contact.exo (should produce 2 VTU files: Block_1, Block_2)
+  - Verify surfaces are watertight (manifold check)
+  - Verify visual correctness in ParaView
+  - Performance test with large meshes (1M elements)
+
+#### Command Usage:
+```bash
+# New default behavior - one watertight surface per block
+contact-detector skin mesh.exo -o skin_output/
+# Generates:
+#   skin_output/Block_1.vtu (complete watertight cube surface)
+#   skin_output/Block_2.vtu (complete watertight cylinder surface)
+
+# Old behavior - fragmented patches (for debugging)
+contact-detector skin mesh.exo -o skin_output/ --split-patches
+# Generates:
+#   skin_output/Block_1_patch_0.vtu
+#   skin_output/Block_1_patch_1.vtu
+#   ...
+```
+
+#### Expected Results:
+- **Before**: cube_cylinder_contact.exo → 50 VTU files (6 for cube, 44 for cylinder)
+- **After**: cube_cylinder_contact.exo → 2 VTU files (1 watertight cube, 1 watertight cylinder)
+
+#### Benefits:
+1. **Clean Visualization**: ParaView users see coherent surfaces, not fragmented patches
+2. **Faster Loading**: Fewer files to open in visualization tools
+3. **Better UX**: Easier to understand mesh structure at a glance
+4. **Maintains Compatibility**: Contact detection still works with sidesets (primary workflow)
+
+**Deliverable**: Clean, watertight surface extraction for mesh visualization without internal features
+
+---
+
 
 ## Risk Mitigation
 

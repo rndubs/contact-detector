@@ -567,7 +567,7 @@ pub fn write_exodus(mesh: &Mesh, output_path: &Path) -> Result<()> {
     let mut sorted_blocks: Vec<_> = mesh.element_blocks.iter().collect();
     sorted_blocks.sort_by_key(|(name, _)| *name);
 
-    for (blk_idx, (block_name, elem_indices)) in sorted_blocks.iter().enumerate() {
+    for (blk_idx, (_block_name, elem_indices)) in sorted_blocks.iter().enumerate() {
         let blk_id = blk_idx + 1;
         let num_elem_in_blk = elem_indices.len();
 
@@ -648,7 +648,279 @@ pub fn write_exodus(mesh: &Mesh, output_path: &Path) -> Result<()> {
         ContactDetectorError::ExodusReadError(format!("Failed to write eb_names data: {}", e))
     })?;
 
+    // Write side sets if any
+    if !mesh.side_sets.is_empty() {
+        write_side_sets(&mut file, mesh)?;
+    }
+
+    // Write node sets if any
+    if !mesh.node_sets.is_empty() {
+        write_node_sets(&mut file, mesh)?;
+    }
+
     log::info!("Successfully wrote Exodus file to {:?}", output_path);
+
+    Ok(())
+}
+
+/// Write side sets to an Exodus file
+fn write_side_sets(file: &mut netcdf::FileMut, mesh: &Mesh) -> Result<()> {
+    let num_side_sets = mesh.side_sets.len();
+
+    if num_side_sets == 0 {
+        return Ok(());
+    }
+
+    log::debug!("Writing {} side sets", num_side_sets);
+
+    // Add num_side_sets dimension
+    file.add_dimension("num_side_sets", num_side_sets)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to add num_side_sets dimension: {}",
+                e
+            ))
+        })?;
+
+    // Sort side sets for consistent ordering
+    let mut sorted_sidesets: Vec<_> = mesh.side_sets.iter().collect();
+    sorted_sidesets.sort_by_key(|(name, _)| *name);
+
+    // Write each side set
+    for (ss_idx, (ss_name, side_list)) in sorted_sidesets.iter().enumerate() {
+        let ss_id = ss_idx + 1;
+        let num_sides_in_set = side_list.len();
+
+        log::debug!(
+            "Writing side set {}: '{}' with {} sides",
+            ss_id,
+            ss_name,
+            num_sides_in_set
+        );
+
+        // Add dimension for this side set
+        let dim_name = format!("num_side_ss{}", ss_id);
+        file.add_dimension(&dim_name, num_sides_in_set)
+            .map_err(|e| {
+                ContactDetectorError::ExodusReadError(format!(
+                    "Failed to add {} dimension: {}",
+                    dim_name, e
+                ))
+            })?;
+
+        // Convert side list to 1-based indexing
+        let elem_ids: Vec<i32> = side_list.iter().map(|(e, _)| (*e + 1) as i32).collect();
+        let side_ids: Vec<i32> = side_list.iter().map(|(_, s)| *s as i32).collect();
+
+        // Create element list variable
+        let elem_var_name = format!("elem_ss{}", ss_id);
+        let mut elem_var = file.add_variable::<i32>(&elem_var_name, &[&dim_name]).map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to add {} variable: {}",
+                elem_var_name, e
+            ))
+        })?;
+
+        // Write element IDs
+        elem_var.put_values(&elem_ids, ..).map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to write {} data: {}",
+                elem_var_name, e
+            ))
+        })?;
+
+        // Create side list variable
+        let side_var_name = format!("side_ss{}", ss_id);
+        let mut side_var = file.add_variable::<i32>(&side_var_name, &[&dim_name]).map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to add {} variable: {}",
+                side_var_name, e
+            ))
+        })?;
+
+        // Write side IDs
+        side_var.put_values(&side_ids, ..).map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to write {} data: {}",
+                side_var_name, e
+            ))
+        })?;
+    }
+
+    // Write side set names
+    let max_name_len = 33;
+    let mut ss_names = vec![0u8; num_side_sets * max_name_len];
+
+    for (ss_idx, (ss_name, _)) in sorted_sidesets.iter().enumerate() {
+        let start = ss_idx * max_name_len;
+        let bytes = ss_name.as_bytes();
+        let copy_len = bytes.len().min(max_name_len - 1);
+        ss_names[start..start + copy_len].copy_from_slice(&bytes[..copy_len]);
+    }
+
+    let mut var = file
+        .add_variable::<u8>("ss_names", &["num_side_sets", "len_string"])
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add ss_names variable: {}", e))
+        })?;
+    var.put_values(&ss_names, ..).map_err(|e| {
+        ContactDetectorError::ExodusReadError(format!("Failed to write ss_names data: {}", e))
+    })?;
+
+    Ok(())
+}
+
+/// Write node sets to an Exodus file
+fn write_node_sets(file: &mut netcdf::FileMut, mesh: &Mesh) -> Result<()> {
+    let num_node_sets = mesh.node_sets.len();
+
+    if num_node_sets == 0 {
+        return Ok(());
+    }
+
+    log::debug!("Writing {} node sets", num_node_sets);
+
+    // Add num_node_sets dimension
+    file.add_dimension("num_node_sets", num_node_sets)
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!(
+                "Failed to add num_node_sets dimension: {}",
+                e
+            ))
+        })?;
+
+    // Sort node sets for consistent ordering
+    let mut sorted_nodesets: Vec<_> = mesh.node_sets.iter().collect();
+    sorted_nodesets.sort_by_key(|(name, _)| *name);
+
+    // Write each node set
+    for (ns_idx, (ns_name, node_list)) in sorted_nodesets.iter().enumerate() {
+        let ns_id = ns_idx + 1;
+        let num_nodes_in_set = node_list.len();
+
+        log::debug!(
+            "Writing node set {}: '{}' with {} nodes",
+            ns_id,
+            ns_name,
+            num_nodes_in_set
+        );
+
+        // Add dimension for this node set
+        let dim_name = format!("num_nod_ns{}", ns_id);
+        file.add_dimension(&dim_name, num_nodes_in_set)
+            .map_err(|e| {
+                ContactDetectorError::ExodusReadError(format!(
+                    "Failed to add {} dimension: {}",
+                    dim_name, e
+                ))
+            })?;
+
+        // Create node list variable
+        let var_name = format!("node_ns{}", ns_id);
+        let mut var = file.add_variable::<i32>(&var_name, &[&dim_name]).map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add {} variable: {}", var_name, e))
+        })?;
+
+        // Convert node list to 1-based indexing
+        let node_ids: Vec<i32> = node_list.iter().map(|n| (*n + 1) as i32).collect();
+
+        // Write node IDs
+        var.put_values(&node_ids, ..).map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to write {} data: {}", var_name, e))
+        })?;
+    }
+
+    // Write node set names
+    let max_name_len = 33;
+    let mut ns_names = vec![0u8; num_node_sets * max_name_len];
+
+    for (ns_idx, (ns_name, _)) in sorted_nodesets.iter().enumerate() {
+        let start = ns_idx * max_name_len;
+        let bytes = ns_name.as_bytes();
+        let copy_len = bytes.len().min(max_name_len - 1);
+        ns_names[start..start + copy_len].copy_from_slice(&bytes[..copy_len]);
+    }
+
+    let mut var = file
+        .add_variable::<u8>("ns_names", &["num_node_sets", "len_string"])
+        .map_err(|e| {
+            ContactDetectorError::ExodusReadError(format!("Failed to add ns_names variable: {}", e))
+        })?;
+    var.put_values(&ns_names, ..).map_err(|e| {
+        ContactDetectorError::ExodusReadError(format!("Failed to write ns_names data: {}", e))
+    })?;
+
+    Ok(())
+}
+
+/// Convert contact surface faces to sideset format (element_id, face_id pairs)
+///
+/// This function maps surface faces from contact detection back to the original
+/// hexahedral mesh elements and their face IDs for Exodus II sideset export.
+pub fn surface_to_sideset(
+    surface: &crate::mesh::SurfaceMesh,
+    mesh: &Mesh,
+) -> Result<Vec<(usize, u8)>> {
+    use std::collections::HashMap;
+
+    log::debug!(
+        "Converting surface '{}' with {} faces to sideset format",
+        surface.part_name,
+        surface.faces.len()
+    );
+
+    // Build a map from canonical face to (element_idx, face_id)
+    let mut face_to_elem_and_id: HashMap<crate::mesh::QuadFace, (usize, u8)> = HashMap::new();
+
+    for (elem_idx, element) in mesh.elements.iter().enumerate() {
+        let hex_faces = element.faces();
+        for (face_id, face) in hex_faces.iter().enumerate() {
+            let canonical = face.canonical();
+            face_to_elem_and_id.insert(canonical, (elem_idx, face_id as u8));
+        }
+    }
+
+    // Map each surface face to (element_idx, face_id)
+    let mut sideset = Vec::new();
+
+    for face in &surface.faces {
+        let canonical = face.canonical();
+
+        if let Some(&(elem_idx, face_id)) = face_to_elem_and_id.get(&canonical) {
+            sideset.push((elem_idx, face_id));
+        } else {
+            log::warn!(
+                "Surface face with nodes {:?} not found in mesh",
+                face.node_ids
+            );
+        }
+    }
+
+    log::debug!("Mapped {} surface faces to sideset", sideset.len());
+
+    Ok(sideset)
+}
+
+/// Add contact surface sidesets to a mesh
+///
+/// This function takes a mesh and adds sidesets for detected contact surfaces.
+/// The sidesets are named using the format "auto_contact_{surface_name}".
+pub fn add_contact_sidesets_to_mesh(
+    mesh: &mut Mesh,
+    contact_surfaces: &[(String, &crate::mesh::SurfaceMesh)],
+    original_mesh: &Mesh,
+) -> Result<()> {
+    for (sideset_name, surface) in contact_surfaces {
+        log::info!("Adding sideset '{}' for surface '{}'", sideset_name, surface.part_name);
+
+        let sideset = surface_to_sideset(surface, original_mesh)?;
+
+        if !sideset.is_empty() {
+            mesh.side_sets.insert(sideset_name.clone(), sideset);
+        } else {
+            log::warn!("Skipping empty sideset '{}'", sideset_name);
+        }
+    }
 
     Ok(())
 }

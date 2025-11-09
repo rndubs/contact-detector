@@ -48,6 +48,9 @@ kiddo = "5.2"
 # Parallelization for performance (optional)
 rayon = { version = "1.10", optional = true }
 
+# Date/time for metadata timestamps
+chrono = { version = "0.4", features = ["serde"] }
+
 [dev-dependencies]
 approx = "0.5"
 criterion = { version = "0.5", features = ["html_reports"] }

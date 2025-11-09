@@ -9,7 +9,8 @@
 - [x] **Phase 5: CLI Polishing & Documentation** - Production-ready CLI with good UX (see [Phase 5](#phase-5-cli-polishing--documentation-week-6-7))
 - [x] **Phase 6: Performance Optimization** - Benchmarking and parallelization, achieving ~3.8s for 1M elements (8x faster than target) (see [Phase 6](#phase-6-optional-performance-optimization))
 - [x] **Phase 7: Automatic Contact Detection** - Added geometry-based automatic contact surface discovery (see [Phase 7](#phase-7-automatic-contact-detection))
-- [ ] **Phase 8 (Future): CAD Import** - Import meshless CAD geometry from STEP/IGES (see [Phase 8](#phase-8-future-cad-import-stepiges))
+- [x] **Phase 8: Visualization & Metadata Export** - Enhanced visualization, sideset export, and JSON metadata for debugging (see [Phase 8](#phase-8-visualization--metadata-export))
+- [ ] **Phase 9 (Future): CAD Import** - Import meshless CAD geometry from STEP/IGES (see [Phase 9](#phase-9-future-cad-import-stepiges))
 
 ## Executive Summary
 
@@ -501,19 +502,19 @@ contact-detector auto-contact mesh.exo \
    - Enable easier debugging and analysis workflow
 
 #### Tasks:
-- [ ] **VTU Visualization Enhancement**
+- [x] **VTU Visualization Enhancement**
   - Modify VTU output to include both contact surfaces AND full skinned mesh
   - Add "contact_region_id" field to identify which surfaces are paired
   - Add surface labels/names as cell data for ParaView filtering
   - Support visualization of contact pair relationships
 
-- [ ] **Exodus Sideset Writer**
+- [x] **Exodus Sideset Writer**
   - Implement function to write sidesets back to Exodus file
   - Map detected contact surfaces to Exodus sideset format (element_id, face_id pairs)
   - Generate unique sideset names (e.g., "auto_contact_Block1_patch4")
   - Preserve all existing mesh data, nodesets, and sidesets
 
-- [ ] **JSON Metadata Exporter**
+- [x] **JSON Metadata Exporter**
   - Create JSON schema for contact pair metadata
   - Export surface properties:
     - Sideset names for each contact pair

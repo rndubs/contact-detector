@@ -444,7 +444,15 @@ fn write_sideset_polydata(
     for &(elem_idx, face_id) in sideset_data {
         let elem = &mesh.elements[elem_idx];
         let elem_faces = elem.faces();
-        let face = elem_faces[face_id as usize];
+
+        // Exodus face IDs are 1-based, convert to 0-based for indexing
+        let face_idx = face_id.saturating_sub(1) as usize;
+        if face_idx >= elem_faces.len() {
+            log::warn!("Invalid face ID {} for element {} (max {}), skipping",
+                face_id, elem_idx, elem_faces.len());
+            continue;
+        }
+        let face = elem_faces[face_idx];
 
         // Remap node IDs to local indices
         let mut local_face = [0usize; 4];

@@ -18,5 +18,9 @@ Thumbs.db
 # Test outputs
 output/
 results/
+test-results/
 *.vtu
 *.vtk
+*.vtp
+*.vtm
+*.exo

@@ -928,6 +928,7 @@ pub fn add_contact_sidesets_to_mesh(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mesh::{HexElement, Point, QuadFace, SurfaceMesh, Vec3};
 
     #[test]
     #[ignore] // Only run when test file is available
@@ -940,5 +941,206 @@ mod tests {
         println!("Nodes: {}", mesh.num_nodes());
         println!("Elements: {}", mesh.num_elements());
         println!("Blocks: {}", mesh.num_blocks());
+    }
+
+    #[test]
+    fn test_surface_to_sideset() {
+        // Create a simple mesh with one hex element
+        let mut mesh = Mesh::new();
+        mesh.nodes = vec![
+            Point::new(0.0, 0.0, 0.0), // 0
+            Point::new(1.0, 0.0, 0.0), // 1
+            Point::new(1.0, 1.0, 0.0), // 2
+            Point::new(0.0, 1.0, 0.0), // 3
+            Point::new(0.0, 0.0, 1.0), // 4
+            Point::new(1.0, 0.0, 1.0), // 5
+            Point::new(1.0, 1.0, 1.0), // 6
+            Point::new(0.0, 1.0, 1.0), // 7
+        ];
+        mesh.elements = vec![HexElement::new([0, 1, 2, 3, 4, 5, 6, 7])];
+        mesh.element_blocks
+            .insert("Block1".to_string(), vec![0]);
+
+        // Create a surface with the top face
+        let mut surface = SurfaceMesh::new("Block1".to_string());
+        surface.faces = vec![QuadFace::new([4, 5, 6, 7])];
+        surface.face_normals = vec![Vec3::new(0.0, 0.0, 1.0)];
+        surface.face_areas = vec![1.0];
+        surface.nodes = mesh.nodes.clone();
+
+        // Convert to sideset
+        let result = surface_to_sideset(&surface, &mesh);
+        assert!(result.is_ok());
+
+        let sideset = result.unwrap();
+        assert_eq!(sideset.len(), 1);
+        assert_eq!(sideset[0].0, 0); // element 0
+        assert_eq!(sideset[0].1, 1); // face 1 (top face)
+    }
+
+    #[test]
+    fn test_add_contact_sidesets_to_mesh() {
+        // Create a simple mesh
+        let mut mesh = Mesh::new();
+        mesh.nodes = vec![
+            Point::new(0.0, 0.0, 0.0),
+            Point::new(1.0, 0.0, 0.0),
+            Point::new(1.0, 1.0, 0.0),
+            Point::new(0.0, 1.0, 0.0),
+            Point::new(0.0, 0.0, 1.0),
+            Point::new(1.0, 0.0, 1.0),
+            Point::new(1.0, 1.0, 1.0),
+            Point::new(0.0, 1.0, 1.0),
+        ];
+        mesh.elements = vec![HexElement::new([0, 1, 2, 3, 4, 5, 6, 7])];
+        mesh.element_blocks
+            .insert("Block1".to_string(), vec![0]);
+
+        // Create a surface
+        let mut surface = SurfaceMesh::new("Block1:patch_1".to_string());
+        surface.faces = vec![QuadFace::new([4, 5, 6, 7])];
+        surface.face_normals = vec![Vec3::new(0.0, 0.0, 1.0)];
+        surface.face_areas = vec![1.0];
+        surface.nodes = mesh.nodes.clone();
+
+        // Clone the original mesh
+        let original_mesh = mesh.clone();
+
+        // Add sidesets
+        let contact_surfaces = vec![("auto_contact_Block1_patch_1".to_string(), &surface)];
+        let result = add_contact_sidesets_to_mesh(&mut mesh, &contact_surfaces, &original_mesh);
+        assert!(result.is_ok());
+
+        // Verify sideset was added
+        assert_eq!(mesh.side_sets.len(), 1);
+        assert!(mesh.side_sets.contains_key("auto_contact_Block1_patch_1"));
+
+        let sideset = &mesh.side_sets["auto_contact_Block1_patch_1"];
+        assert_eq!(sideset.len(), 1);
+        assert_eq!(sideset[0].0, 0); // element 0
+    }
+
+    #[test]
+    fn test_write_exodus_with_sidesets() {
+        // Create a mesh with sidesets
+        let mut mesh = Mesh::new();
+        mesh.nodes = vec![
+            Point::new(0.0, 0.0, 0.0),
+            Point::new(1.0, 0.0, 0.0),
+            Point::new(1.0, 1.0, 0.0),
+            Point::new(0.0, 1.0, 0.0),
+            Point::new(0.0, 0.0, 1.0),
+            Point::new(1.0, 0.0, 1.0),
+            Point::new(1.0, 1.0, 1.0),
+            Point::new(0.0, 1.0, 1.0),
+        ];
+        mesh.elements = vec![HexElement::new([0, 1, 2, 3, 4, 5, 6, 7])];
+        mesh.element_blocks
+            .insert("Block1".to_string(), vec![0]);
+
+        // Add a sideset
+        mesh.side_sets
+            .insert("test_sideset".to_string(), vec![(0, 1)]);
+
+        // Write to file
+        let temp_dir = std::env::temp_dir();
+        let output_path = temp_dir.join("test_mesh_with_sidesets.exo");
+
+        let result = write_exodus(&mesh, &output_path);
+        assert!(result.is_ok());
+
+        // Verify file was created
+        assert!(output_path.exists());
+
+        // Clean up
+        let _ = std::fs::remove_file(&output_path);
+    }
+
+    #[test]
+    fn test_write_exodus_with_nodesets() {
+        // Create a mesh with nodesets
+        let mut mesh = Mesh::new();
+        mesh.nodes = vec![
+            Point::new(0.0, 0.0, 0.0),
+            Point::new(1.0, 0.0, 0.0),
+            Point::new(1.0, 1.0, 0.0),
+            Point::new(0.0, 1.0, 0.0),
+            Point::new(0.0, 0.0, 1.0),
+            Point::new(1.0, 0.0, 1.0),
+            Point::new(1.0, 1.0, 1.0),
+            Point::new(0.0, 1.0, 1.0),
+        ];
+        mesh.elements = vec![HexElement::new([0, 1, 2, 3, 4, 5, 6, 7])];
+        mesh.element_blocks
+            .insert("Block1".to_string(), vec![0]);
+
+        // Add a nodeset
+        mesh.node_sets
+            .insert("test_nodeset".to_string(), vec![0, 1, 2, 3]);
+
+        // Write to file
+        let temp_dir = std::env::temp_dir();
+        let output_path = temp_dir.join("test_mesh_with_nodesets.exo");
+
+        let result = write_exodus(&mesh, &output_path);
+        assert!(result.is_ok());
+
+        // Verify file was created
+        assert!(output_path.exists());
+
+        // Clean up
+        let _ = std::fs::remove_file(&output_path);
+    }
+
+    #[test]
+    fn test_surface_to_sideset_multiple_faces() {
+        // Create a mesh with multiple elements
+        let mut mesh = Mesh::new();
+
+        // Create nodes for 2 hex elements stacked vertically
+        mesh.nodes = vec![
+            // First hex (bottom)
+            Point::new(0.0, 0.0, 0.0), // 0
+            Point::new(1.0, 0.0, 0.0), // 1
+            Point::new(1.0, 1.0, 0.0), // 2
+            Point::new(0.0, 1.0, 0.0), // 3
+            Point::new(0.0, 0.0, 1.0), // 4
+            Point::new(1.0, 0.0, 1.0), // 5
+            Point::new(1.0, 1.0, 1.0), // 6
+            Point::new(0.0, 1.0, 1.0), // 7
+            // Second hex (top)
+            Point::new(0.0, 0.0, 2.0), // 8
+            Point::new(1.0, 0.0, 2.0), // 9
+            Point::new(1.0, 1.0, 2.0), // 10
+            Point::new(0.0, 1.0, 2.0), // 11
+        ];
+
+        mesh.elements = vec![
+            HexElement::new([0, 1, 2, 3, 4, 5, 6, 7]),
+            HexElement::new([4, 5, 6, 7, 8, 9, 10, 11]),
+        ];
+        mesh.element_blocks
+            .insert("Block1".to_string(), vec![0, 1]);
+
+        // Create a surface with bottom and top faces
+        let mut surface = SurfaceMesh::new("Block1".to_string());
+        surface.faces = vec![
+            QuadFace::new([0, 3, 2, 1]), // bottom face of first hex
+            QuadFace::new([8, 9, 10, 11]), // top face of second hex
+        ];
+        surface.face_normals = vec![Vec3::new(0.0, 0.0, -1.0), Vec3::new(0.0, 0.0, 1.0)];
+        surface.face_areas = vec![1.0, 1.0];
+        surface.nodes = mesh.nodes.clone();
+
+        // Convert to sideset
+        let result = surface_to_sideset(&surface, &mesh);
+        assert!(result.is_ok());
+
+        let sideset = result.unwrap();
+        assert_eq!(sideset.len(), 2);
+
+        // Verify both faces were mapped
+        assert!(sideset.iter().any(|(elem, face)| *elem == 0 && *face == 0));
+        assert!(sideset.iter().any(|(elem, face)| *elem == 1 && *face == 1));
     }
 }

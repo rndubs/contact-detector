@@ -243,6 +243,8 @@ fn sanitize_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contact::{ContactCriteria, ContactPair, ContactResults};
+    use crate::mesh::{Point, QuadFace, SurfaceMesh, Vec3};
 
     #[test]
     fn test_parse_surface_name() {
@@ -255,5 +257,112 @@ mod tests {
     fn test_sanitize_name() {
         assert_eq!(sanitize_name("Block_1:patch_4"), "Block_1_patch_4");
         assert_eq!(sanitize_name("Part-A/B"), "Part_A_B");
+    }
+
+    #[test]
+    fn test_compute_average_normal() {
+        let mut surface = SurfaceMesh::new("TestSurface".to_string());
+        surface.face_normals = vec![
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+        ];
+
+        let avg_normal = compute_average_normal(&surface);
+        assert_eq!(avg_normal, [1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_compute_average_normal_empty() {
+        let surface = SurfaceMesh::new("TestSurface".to_string());
+        let avg_normal = compute_average_normal(&surface);
+        assert_eq!(avg_normal, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_metadata_creation() {
+        let criteria = ContactCriteria::new(0.01, 0.01, 30.0);
+        let metadata = ContactMetadata::new("test_mesh.exo".to_string(), &criteria, 1);
+
+        assert_eq!(metadata.mesh_file, "test_mesh.exo");
+        assert_eq!(metadata.detection_criteria.max_gap, 0.01);
+        assert_eq!(metadata.detection_criteria.max_penetration, 0.01);
+        assert_eq!(metadata.detection_criteria.max_angle, 30.0);
+        assert_eq!(metadata.detection_criteria.min_pairs, 1);
+        assert_eq!(metadata.contact_pairs.len(), 0);
+    }
+
+    #[test]
+    fn test_add_contact_pair() {
+        let criteria = ContactCriteria::new(0.01, 0.01, 30.0);
+        let mut metadata = ContactMetadata::new("test_mesh.exo".to_string(), &criteria, 1);
+
+        // Create test surfaces
+        let mut surface_a = SurfaceMesh::new("Block_1:patch_4".to_string());
+        surface_a.faces = vec![QuadFace::new([0, 1, 2, 3]); 10];
+        surface_a.face_normals = vec![Vec3::new(0.0, 0.0, -1.0); 10];
+        surface_a.face_areas = vec![1.0; 10];
+
+        let mut surface_b = SurfaceMesh::new("Block_2:patch_1".to_string());
+        surface_b.faces = vec![QuadFace::new([0, 1, 2, 3]); 8];
+        surface_b.face_normals = vec![Vec3::new(0.0, 0.0, 1.0); 8];
+        surface_b.face_areas = vec![0.9; 8];
+
+        // Create test contact results
+        let mut results = ContactResults::new(
+            "Block_1:patch_4".to_string(),
+            "Block_2:patch_1".to_string(),
+            criteria.clone(),
+        );
+        for i in 0..5 {
+            results.pairs.push(ContactPair {
+                surface_a_face_id: i,
+                surface_b_face_id: i,
+                distance: 0.0,
+                normal_angle: 180.0,
+                contact_point: Point::new(0.0, 0.0, 0.0),
+            });
+        }
+        results.unpaired_a = vec![5, 6, 7, 8, 9];
+        results.unpaired_b = vec![5, 6, 7];
+
+        // Create metrics
+        let metrics_a = crate::contact::SurfaceMetrics::compute(&results, &surface_a);
+        let metrics_b = crate::contact::SurfaceMetrics::compute(&results, &surface_b);
+
+        // Add contact pair
+        metadata.add_contact_pair(1, &surface_a, &surface_b, &results, &metrics_a, &metrics_b);
+
+        assert_eq!(metadata.contact_pairs.len(), 1);
+        assert_eq!(metadata.contact_pairs[0].pair_id, 1);
+        assert_eq!(metadata.contact_pairs[0].surface_a.name, "Block_1:patch_4");
+        assert_eq!(metadata.contact_pairs[0].surface_b.name, "Block_2:patch_1");
+        assert_eq!(metadata.contact_pairs[0].surface_a.block_id, Some(1));
+        assert_eq!(metadata.contact_pairs[0].surface_a.patch_id, Some(4));
+        assert_eq!(metadata.contact_pairs[0].surface_b.block_id, Some(2));
+        assert_eq!(metadata.contact_pairs[0].surface_b.patch_id, Some(1));
+        assert_eq!(metadata.contact_pairs[0].contact_statistics.num_pairs, 5);
+        assert_eq!(
+            metadata.contact_pairs[0].contact_statistics.normal_alignment,
+            "opposed"
+        );
+    }
+
+    #[test]
+    fn test_metadata_export() {
+        let criteria = ContactCriteria::new(0.01, 0.01, 30.0);
+        let metadata = ContactMetadata::new("test_mesh.exo".to_string(), &criteria, 1);
+
+        let temp_dir = std::env::temp_dir();
+        let output_path = temp_dir.join("test_metadata.json");
+
+        let result = metadata.export(&output_path);
+        assert!(result.is_ok());
+
+        // Verify file was created
+        assert!(output_path.exists());
+
+        // Clean up
+        let _ = std::fs::remove_file(&output_path);
     }
 }

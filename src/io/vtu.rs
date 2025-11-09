@@ -614,4 +614,108 @@ mod tests {
         // Clean up
         let _ = std::fs::remove_file(&output_path);
     }
+
+    #[test]
+    fn test_write_contact_surfaces_with_skin() {
+        use crate::contact::{ContactCriteria, ContactPair, ContactResults};
+
+        // Create test surfaces
+        let surface_a = make_test_surface();
+        let mut surface_b = make_test_surface();
+        surface_b.part_name = "TestBlock2".to_string();
+
+        // Create contact results
+        let criteria = ContactCriteria::new(0.01, 0.01, 30.0);
+        let mut results = ContactResults::new(
+            "TestBlock".to_string(),
+            "TestBlock2".to_string(),
+            criteria,
+        );
+        results.pairs.push(ContactPair {
+            surface_a_face_id: 0,
+            surface_b_face_id: 0,
+            distance: 0.0,
+            normal_angle: 180.0,
+            contact_point: Point::new(0.5, 0.5, 0.0),
+        });
+
+        // Create all surfaces (skin)
+        let all_surfaces = vec![surface_a.clone(), surface_b.clone()];
+
+        let temp_dir = std::env::temp_dir();
+        let output_path = temp_dir.join("test_contact_with_skin.vtu");
+
+        let result = write_contact_surfaces_with_skin(
+            &surface_a,
+            &surface_b,
+            &results,
+            &all_surfaces,
+            "TestBlock",
+            "TestBlock2",
+            1,
+            &output_path,
+            None,
+        );
+
+        assert!(result.is_ok());
+
+        // Verify file was created
+        assert!(output_path.exists());
+
+        // Clean up
+        let _ = std::fs::remove_file(&output_path);
+    }
+
+    #[test]
+    fn test_write_contact_surfaces_with_skin_multiple_surfaces() {
+        use crate::contact::{ContactCriteria, ContactPair, ContactResults};
+
+        // Create multiple test surfaces
+        let surface_a = make_test_surface();
+
+        let mut surface_b = make_test_surface();
+        surface_b.part_name = "TestBlock2".to_string();
+
+        let mut surface_c = make_test_surface();
+        surface_c.part_name = "TestBlock3".to_string();
+
+        // Create contact results
+        let criteria = ContactCriteria::new(0.01, 0.01, 30.0);
+        let mut results = ContactResults::new(
+            "TestBlock".to_string(),
+            "TestBlock2".to_string(),
+            criteria,
+        );
+        results.pairs.push(ContactPair {
+            surface_a_face_id: 0,
+            surface_b_face_id: 0,
+            distance: 0.001,
+            normal_angle: 175.0,
+            contact_point: Point::new(0.5, 0.5, 0.0),
+        });
+
+        // All surfaces including non-contact surface
+        let all_surfaces = vec![surface_a.clone(), surface_b.clone(), surface_c];
+
+        let temp_dir = std::env::temp_dir();
+        let output_path = temp_dir.join("test_contact_with_skin_multi.vtu");
+
+        let result = write_contact_surfaces_with_skin(
+            &surface_a,
+            &surface_b,
+            &results,
+            &all_surfaces,
+            "TestBlock",
+            "TestBlock2",
+            1,
+            &output_path,
+            None,
+        );
+
+        assert!(result.is_ok());
+        assert!(output_path.exists());
+
+        // Clean up
+        let _ = std::fs::remove_file(&output_path);
+    }
 }

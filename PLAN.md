@@ -12,6 +12,7 @@
 - [x] **Phase 8: Visualization & Metadata Export** - Enhanced visualization, sideset export, and JSON metadata for debugging (see [Phase 8](#phase-8-visualization--metadata-export))
 - [ ] **Phase 9 (Future): CAD Import** - Import meshless CAD geometry from STEP/IGES (see [Phase 9](#phase-9-future-cad-import-stepiges))
 - [ ] **Phase 10: Skinner cleanup** - Surface Patch Merging & Watertight Visualization
+- [ ] **Phase 11: VTK Multi-block Export & ParaView Enhancements** - Enhanced VTK output for advanced ParaView visualization (see [Phase 11](#phase-11-vtk-multi-block-export--paraview-enhancements))
 
 ## Executive Summary
 
@@ -25,15 +26,66 @@ Based on clarifying discussions, the following requirements are confirmed:
 - **Performance Target**: Process 1M elements in ≤30 seconds
 - **Parallelization**: Optional (not required initially)
 - **Architecture**: CLI application only (not a library)
-- **Visualization**: Export data for separate VS Code extension using VTK.js
+- **Visualization**: Export data for ParaView visualization with advanced visibility controls
 - **Input Format**: Standard Exodus II (.exo) files only
-- **Output Format**: VTK/VTU files with embedded metadata (format optimized for application needs)
+- **Output Format**: VTK multi-block (.vtm) files with hierarchical organization (updated based on VTK research)
 - **Contact Pairs**: Handle multiple contact pair definitions in a single run
 - **Metadata**: Preserve Exodus II metadata (part/material names, nodesets, sidesets)
+- **Material Support**: Export material IDs (not properties) with support for multiple materials per element set
 - **Tolerances**: Configurable initial gap distance (e.g., 0.001-0.005 inches)
 - **Platforms**: Linux primary; macOS/Windows optional
 - **Use Case**: Internal use only
 - **Test Data**: Downloaded from msh2exo-examples repository (see `test-data/` directory)
+
+## Key Insights from VTK Format Research
+
+Based on comprehensive VTK format research (see `research/VTK.md`), several important findings update our implementation approach:
+
+### Format Selection: Multi-block Datasets (.vtm)
+**Previous assumption**: Single .vtu files are sufficient for visualization
+**VTK research finding**: Multi-block datasets (.vtm) are specifically designed for FEA assemblies with multiple components
+**Impact**: Phase 11 added to implement .vtm export with hierarchical organization
+
+**Benefits of multi-block approach**:
+- Native ParaView Multiblock Inspector provides checkbox-based visibility toggling
+- Eliminates coincident geometry issues (z-fighting) when viewing contact surfaces with volume mesh
+- Enables selective loading of components (memory optimization)
+- Better organization for meshes with multiple materials, sidesets, and nodesets
+
+### Contact Pair Metadata: Standard VTK Convention
+**Previous assumption**: Store contact pair info only in field data
+**VTK research finding**: Three standard cell data arrays define contact pairs in VTK ecosystem
+**Implementation**: Each contact surface should include:
+- `ContactSurfaceId` (Int32): Unique identifier for each surface
+- `ContactPairId` (Int32): Groups master/slave pairs together
+- `ContactRole` (Int32): 0 = master, 1 = slave
+
+This convention enables ParaView filtering and is recognized by other VTK-based tools.
+
+### Material ID Support
+**Previous assumption**: Focus only on element blocks
+**VTK research finding**: MaterialId as integer cell data is standard practice
+**Implementation**: Export `MaterialId` array on volume elements, supporting multiple materials per element set
+
+### Surface Normal Visualization
+**Previous assumption**: ParaView can compute normals as needed
+**VTK research finding**: Exporting normals as 3-component cell data enables direct Glyph visualization
+**Implementation**: Export `SurfaceNormal` Float32[3] arrays for all contact surfaces
+
+### Nodeset/Sideset Representation
+**Previous assumption**: Export as metadata only
+**VTK research finding**: Separate polydata files in multi-block hierarchy provide better visualization
+**Implementation**:
+- Sidesets: Polydata with `SideSetId`, `SourceElementId`, `SourceElementSide` arrays
+- Nodesets: Vertex polydata with `NodeSetId` arrays
+- Both included in hierarchical multi-block structure
+
+### Translucent Mesh Viewing (Addressing Coincident Geometry)
+**Previous assumption**: Merge surfaces to avoid visualization issues
+**VTK research finding**: Multi-block organization separates volume and surface geometry, eliminating coincident geometry artifacts
+**Implementation**: Volume mesh and contact surfaces in separate blocks enable translucent volume with opaque surfaces
+
+These findings directly inform Phase 11 implementation and update Phase 10's approach to surface visualization.
 
 ## Research Findings - Rust Ecosystem
 
@@ -652,6 +704,8 @@ contact-detector/
 ### Phase 10: Surface Patch Merging & Watertight Visualization
 **Goal**: Merge fragmented surface patches into coherent, watertight surfaces for each element block for clean visualization
 
+**Note**: Based on VTK format research (see Phase 11), the visualization issues may be better addressed through multi-block .vtm organization rather than surface merging. Phase 11 provides a more robust solution for the underlying visualization challenges. This phase remains optional for specific use cases requiring single-surface-per-block output.
+
 #### Background:
 The current surface extraction algorithm creates separate patches for every connected component of boundary faces. This results in excessive fragmentation (e.g., 50+ patches for a simple cube+cylinder mesh). While this doesn't break contact detection functionality, it creates issues for visualization and makes the mesh harder to inspect.
 
@@ -720,6 +774,257 @@ contact-detector skin mesh.exo -o skin_output/ --split-patches
 4. **Maintains Compatibility**: Contact detection still works with sidesets (primary workflow)
 
 **Deliverable**: Clean, watertight surface extraction for mesh visualization without internal features
+
+---
+
+### Phase 11: VTK Multi-block Export & ParaView Enhancements
+**Goal**: Implement hierarchical multi-block VTK output for advanced ParaView visualization capabilities
+
+#### Background:
+Based on VTK format research (see `research/VTK.md`), the current single .vtu file approach has limitations for complex visualization workflows:
+- Cannot easily toggle visibility of different mesh components (element blocks, sidesets, nodesets, contact pairs)
+- Creates coincident geometry issues when viewing contact surfaces overlaid on the mesh
+- Limited support for material-based visualization
+- Missing standard contact pair metadata arrays
+- No surface normal visualization support
+
+The **multi-block dataset (.vtm) format** is specifically designed for this use case and provides:
+- Hierarchical organization with ParaView's Multiblock Inspector checkbox controls
+- Clean separation of volume elements, surfaces, and metadata
+- Ability to view contact surfaces with translucent volume mesh
+- No coincident geometry artifacts
+- Better organization for meshes with multiple materials
+
+#### Requirements (from user specifications):
+1. **Toggle visibility** based on:
+   - Element blocks (parts)
+   - Sidesets (boundary surfaces)
+   - Nodesets (point sets)
+   - Contact surface pairs (master/slave)
+   - Material assignments (one element set can have multiple materials)
+
+2. **Master/Slave surface visualization**:
+   - View both surfaces simultaneously with translucent mesh
+   - Handle non-overlapping surfaces (cylinder on cube, rotated cubes)
+   - Visualize surface normals as arrows
+
+3. **Material support**:
+   - Store material IDs (not properties)
+   - Support multiple materials per element set
+   - Enable material-based filtering in ParaView
+
+#### Tasks:
+
+- [ ] **Multi-block Dataset Writer Implementation**
+  - Add support for .vtm (VTK multi-block) format to vtkio or implement directly
+  - Design hierarchical block structure:
+    ```
+    Root Multi-block Dataset
+    ├── Block 0: "VolumeMesh"
+    │   ├── Block 0: "ElementBlock_1" (with MaterialId cell data)
+    │   ├── Block 1: "ElementBlock_2"
+    │   └── Block N: "ElementBlock_N"
+    ├── Block 1: "Sidesets"
+    │   ├── Block 0: "Sideset_contact_surface_1"
+    │   ├── Block 1: "Sideset_contact_surface_2"
+    │   └── Block M: "Sideset_name_M"
+    ├── Block 2: "Nodesets"
+    │   ├── Block 0: "Nodeset_fixed_nodes" (vertex polydata)
+    │   └── Block K: "Nodeset_name_K"
+    └── Block 3: "ContactPairs"
+        ├── Block 0: "ContactPair_1"
+        │   ├── Block 0: "ContactPair_1_Master" (with metadata arrays)
+        │   └── Block 1: "ContactPair_1_Slave"
+        └── Block P: "ContactPair_P"
+            ├── Block 0: "ContactPair_P_Master"
+            └── Block 1: "ContactPair_P_Slave"
+    ```
+  - Generate .vtm meta-file referencing individual .vtu/.vtp piece files
+  - Ensure relative paths work correctly
+
+- [ ] **Material ID Support**
+  - Read material IDs from Exodus file element blocks
+  - Export as `MaterialId` integer cell data array on volume elements
+  - Support element sets containing multiple materials
+  - Add field data with material name mappings (optional enhancement)
+  - Test material-based filtering with ParaView Threshold filter
+
+- [ ] **Contact Pair Metadata Arrays** (VTK standard convention)
+  - Add three cell data arrays to each contact surface:
+    - `ContactSurfaceId` (Int32): Unique identifier for each surface
+    - `ContactPairId` (Int32): Groups master/slave pairs together
+    - `ContactRole` (Int32): 0 = master, 1 = slave
+  - Enable ParaView filtering to isolate specific contact pairs
+  - Store pair definitions in field data as integer arrays: [PairID, MasterSurfaceID, SlaveSurfaceID]
+
+- [ ] **Surface Normal Export**
+  - Compute surface normals for all contact surfaces (already done internally)
+  - Export as `SurfaceNormal` 3-component Float32 cell data array
+  - Test visualization with ParaView Glyph filter (arrows showing normal directions)
+  - Ensure normals point in correct direction (outward for master, inward for slave or vice versa)
+
+- [ ] **Nodeset Export as Vertex Polydata**
+  - Extract nodesets from Exodus file
+  - Export as separate .vtp files with vertex polydata
+  - Include `NodeSetId` integer point data array
+  - Add to "Nodesets" block in multi-block hierarchy
+  - Enable rendering as spheres in ParaView with adjustable point size
+
+- [ ] **Element Block Organization**
+  - Export each element block as separate .vtu file
+  - Include in "VolumeMesh" hierarchical block
+  - Maintain element block names from Exodus
+  - Add `ElementBlockId` cell data array
+  - Support selective loading of blocks
+
+- [ ] **CLI Updates for Multi-block Output**
+  - Add `--format` flag: `vtu` (current single-file) or `vtm` (new multi-block)
+  - Default to `vtm` for full-featured output
+  - Update `skin` command to support both formats
+  - Update `auto-contact` command to export multi-block by default
+  - Add `--export-multiblock` flag for backward compatibility
+
+- [ ] **Visualization Testing in ParaView**
+  - Test hierarchical visibility toggling via Multiblock Inspector
+  - Verify material-based filtering with Threshold filter
+  - Test translucent volume mesh with opaque contact surfaces
+  - Verify surface normal Glyph visualization
+  - Test with non-overlapping surfaces (cylinder on cube example)
+  - Verify nodeset visibility with sphere rendering
+  - Document ParaView workflow for common tasks
+
+- [ ] **Performance Validation**
+  - Benchmark multi-block export vs single .vtu
+  - Ensure file write time remains acceptable for 1M elements
+  - Test ParaView load time for multi-block datasets
+  - Validate memory usage during export
+
+- [ ] **Documentation Updates**
+  - Document multi-block hierarchy structure
+  - Add ParaView usage guide for:
+    - Toggling visibility of element blocks, sidesets, nodesets, contact pairs
+    - Material-based filtering
+    - Translucent mesh visualization
+    - Surface normal visualization
+    - Handling non-overlapping surfaces
+  - Update README with new output format examples
+  - Add example ParaView state files (.pvsm)
+
+#### Command Usage:
+```bash
+# Multi-block output (new default)
+contact-detector auto-contact mesh.exo \
+    --output-dir results/ \
+    --format vtm \
+    --export-sidesets \
+    --export-nodesets \
+    --export-materials
+
+# Generates:
+#   results/mesh_multiblock.vtm (meta-file)
+#   results/volume/ElementBlock_1.vtu
+#   results/volume/ElementBlock_2.vtu
+#   results/sidesets/Sideset_contact_1.vtp
+#   results/nodesets/Nodeset_fixed.vtp
+#   results/contact_pairs/ContactPair_1_Master.vtp
+#   results/contact_pairs/ContactPair_1_Slave.vtp
+#   results/metadata.json
+
+# Legacy single-file output
+contact-detector auto-contact mesh.exo \
+    --format vtu \
+    -o results/
+```
+
+#### Multi-block Structure Details:
+
+**Volume Mesh Blocks** (`.vtu` unstructured grids):
+- Cell data: `ElementBlockId` (Int32), `MaterialId` (Int32)
+- Point data: Node coordinates
+- Field data: Block name, material name mapping (optional)
+
+**Sideset Blocks** (`.vtp` polydata):
+- Cell data: `SideSetId` (Int32), `SourceElementId` (Int32), `SourceElementSide` (Int32)
+- Geometry: Boundary face quad meshes
+
+**Nodeset Blocks** (`.vtp` vertex polydata):
+- Point data: `NodeSetId` (Int32)
+- Geometry: Vertex positions
+
+**Contact Pair Blocks** (`.vtp` polydata):
+- Cell data:
+  - `ContactSurfaceId` (Int32)
+  - `ContactPairId` (Int32)
+  - `ContactRole` (Int32): 0 = master, 1 = slave
+  - `SurfaceNormal` (Float32[3]): Normal vectors
+  - `Distance` (Float64): Gap/overlap distance
+  - `NormalAngle` (Float64): Angle between opposing normals
+  - `IsPaired` (Int32): Boolean flag
+- Field data: Contact criteria, surface statistics
+
+#### ParaView Visualization Workflow:
+
+1. **Loading the multi-block dataset**:
+   - File → Open → Select `.vtm` file
+   - Apply
+   - All blocks appear in Pipeline Browser
+
+2. **Toggling visibility**:
+   - View → Multiblock Inspector
+   - Expand tree to see hierarchy
+   - Check/uncheck blocks to toggle visibility
+   - Right-click for color and opacity controls
+
+3. **Material-based filtering**:
+   - Select VolumeMesh block
+   - Filters → Common → Threshold
+   - Select `MaterialId` array
+   - Set value range for specific material
+   - Apply
+
+4. **Viewing contact surfaces with translucent mesh**:
+   - Select VolumeMesh in Multiblock Inspector
+   - Set Opacity to 0.3 in Properties panel
+   - Enable ContactPairs blocks
+   - Both surfaces and volume visible simultaneously
+
+5. **Visualizing surface normals**:
+   - Select ContactPair block (master or slave)
+   - Filters → Common → Glyph
+   - Glyph Type: Arrow
+   - Vectors: `SurfaceNormal`
+   - Scale Mode: Vector
+   - Apply
+   - Arrows show normal directions
+
+6. **Viewing non-overlapping surfaces**:
+   - Enable both master and slave blocks
+   - Use different colors for each surface
+   - Rotate view to inspect gap/alignment
+   - Query `Distance` cell data to verify gap
+
+#### Expected Results:
+- **Before**: Single .vtu file, difficult to toggle components, coincident geometry issues
+- **After**: Multi-block .vtm with clean hierarchical organization, easy visibility control, no rendering artifacts
+
+#### Benefits:
+1. **Native ParaView Integration**: Works seamlessly with Multiblock Inspector (no custom scripts)
+2. **Clean Visualization**: No z-fighting from coincident geometry
+3. **Material Support**: Full material-based filtering and visualization
+4. **Contact Pair Clarity**: Master/slave surfaces clearly identified with metadata
+5. **Surface Normal Visualization**: Direct Glyph support for normal arrows
+6. **Future-Proof**: Standard VTK format for long-term compatibility
+
+#### Research Validation:
+This phase directly implements recommendations from `research/VTK.md`:
+- Multi-block datasets for hierarchical FEA assemblies (lines 11-12)
+- Three contact pair metadata arrays (lines 17-18)
+- Material ID cell data arrays (lines 22-23)
+- Surface normal export for visualization (lines 65-67)
+- Separate polydata for sidesets/nodesets (lines 13-14)
+- ParaView Multiblock Inspector workflow (lines 29-36)
+
+**Deliverable**: Production-ready multi-block VTK export enabling all requested ParaView visualization features
 
 ---
 

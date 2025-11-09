@@ -44,6 +44,10 @@ fn create_two_block_mesh() -> Mesh {
     mesh.element_blocks.insert("Block1".to_string(), vec![0]);
     mesh.element_blocks.insert("Block2".to_string(), vec![1]);
 
+    // Add material IDs
+    mesh.material_ids.push(1); // Block 1 - material 1
+    mesh.material_ids.push(2); // Block 2 - material 2
+
     mesh
 }
 
@@ -288,4 +292,87 @@ fn test_error_handling_invalid_block() {
 
     // Should succeed even with same surface (though results may be zero)
     assert!(result.is_ok());
+}
+
+#[test]
+fn test_multiblock_export() {
+    use contact_detector::io::MultiBlockBuilder;
+    use std::fs;
+    use tempfile::TempDir;
+
+    let mesh = create_two_block_mesh();
+
+    // Create a temporary directory for output
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let output_dir = temp_dir.path();
+
+    // Create multi-block builder
+    let mut mb_builder = MultiBlockBuilder::new(output_dir, "test_mesh".to_string(), (2, 2));
+
+    // Add volume mesh
+    let result = mb_builder.add_volume_mesh(&mesh);
+    assert!(result.is_ok(), "Failed to add volume mesh: {:?}", result.err());
+
+    // Write the multi-block file
+    let result = mb_builder.write();
+    assert!(result.is_ok(), "Failed to write multi-block file: {:?}", result.err());
+
+    // Verify the output file was created
+    let vtm_path = output_dir.join("test_mesh.vtm");
+    assert!(vtm_path.exists(), "VTM file should be created");
+
+    // Verify directory structure was created
+    let volume_dir = output_dir.join("volume");
+    assert!(volume_dir.exists(), "Volume directory should be created");
+
+    // Read the VTM file and check it contains expected content
+    let vtm_content = fs::read_to_string(&vtm_path).expect("Failed to read VTM file");
+    assert!(vtm_content.contains("vtkMultiBlockDataSet"), "VTM should contain vtkMultiBlockDataSet");
+    assert!(vtm_content.contains("VolumeMesh"), "VTM should contain VolumeMesh block");
+}
+
+#[test]
+fn test_multiblock_with_contact_pairs() {
+    use contact_detector::io::MultiBlockBuilder;
+    use tempfile::TempDir;
+
+    let mesh = create_two_block_mesh();
+    let surfaces = extract_surface(&mesh).expect("Surface extraction should succeed");
+
+    // Create contact results
+    let criteria = ContactCriteria::new(0.005, 0.001, 45.0);
+    let results = detect_contact_pairs(&surfaces[0], &surfaces[1], &criteria)
+        .expect("Contact detection should succeed");
+
+    // Create a temporary directory for output
+    let temp_dir = TempDir::new().expect("Failed to create temp directory");
+    let output_dir = temp_dir.path();
+
+    // Create multi-block builder
+    let mut mb_builder = MultiBlockBuilder::new(output_dir, "test_contact".to_string(), (2, 2));
+
+    // Add contact pairs
+    let contact_data = vec![(
+        "Block1".to_string(),
+        "Block2".to_string(),
+        surfaces[0].clone(),
+        surfaces[1].clone(),
+        results,
+    )];
+
+    let result = mb_builder.add_contact_pairs(&contact_data, 1);
+    assert!(result.is_ok(), "Failed to add contact pairs: {:?}", result.err());
+
+    // Write the multi-block file
+    let result = mb_builder.write();
+    assert!(result.is_ok(), "Failed to write multi-block file: {:?}", result.err());
+
+    // Verify contact pairs directory was created
+    let contact_dir = output_dir.join("contact_pairs");
+    assert!(contact_dir.exists(), "Contact pairs directory should be created");
+
+    // Verify the VTM file contains contact pair references
+    let vtm_path = output_dir.join("test_contact.vtm");
+    let vtm_content = std::fs::read_to_string(&vtm_path).expect("Failed to read VTM file");
+    assert!(vtm_content.contains("ContactPairs"), "VTM should contain ContactPairs block");
 }

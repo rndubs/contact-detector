@@ -372,6 +372,7 @@ mod tests {
             nodes,
             elements: vec![element],
             element_blocks,
+            material_ids: vec![1], // Single element with material ID 1
             node_sets: HashMap::new(),
             side_sets: HashMap::new(),
         }
@@ -449,6 +450,7 @@ mod tests {
             nodes,
             elements: vec![hex1, hex2],
             element_blocks,
+            material_ids: vec![1, 1], // Two elements with material ID 1
             node_sets: HashMap::new(),
             side_sets: HashMap::new(),
         };

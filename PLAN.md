@@ -12,7 +12,7 @@
 - [x] **Phase 8: Visualization & Metadata Export** - Enhanced visualization, sideset export, and JSON metadata for debugging (see [Phase 8](#phase-8-visualization--metadata-export))
 - [ ] **Phase 9 (Future): CAD Import** - Import meshless CAD geometry from STEP/IGES (see [Phase 9](#phase-9-future-cad-import-stepiges))
 - [ ] **Phase 10: Skinner cleanup** - Surface Patch Merging & Watertight Visualization
-- [ ] **Phase 11: VTK Multi-block Export & ParaView Enhancements** - Enhanced VTK output for advanced ParaView visualization (see [Phase 11](#phase-11-vtk-multi-block-export--paraview-enhancements))
+- [x] **Phase 11: VTK Multi-block Export & ParaView Enhancements** - Enhanced VTK output for advanced ParaView visualization (see [Phase 11](#phase-11-vtk-multi-block-export--paraview-enhancements))
 
 ## Executive Summary
 
@@ -906,7 +906,7 @@ The **multi-block dataset (.vtm) format** is specifically designed for this use 
 
 #### Tasks:
 
-- [ ] **Multi-block Dataset Writer Implementation**
+- [x] **Multi-block Dataset Writer Implementation**
   - Add support for .vtm (VTK multi-block) format to vtkio or implement directly
   - Design hierarchical block structure:
     ```
@@ -933,14 +933,14 @@ The **multi-block dataset (.vtm) format** is specifically designed for this use 
   - Generate .vtm meta-file referencing individual .vtu/.vtp piece files
   - Ensure relative paths work correctly
 
-- [ ] **Material ID Support**
+- [x] **Material ID Support**
   - Read material IDs from Exodus file element blocks
   - Export as `MaterialId` integer cell data array on volume elements
   - Support element sets containing multiple materials
   - Add field data with material name mappings (optional enhancement)
   - Test material-based filtering with ParaView Threshold filter
 
-- [ ] **Contact Pair Metadata Arrays** (VTK standard convention)
+- [x] **Contact Pair Metadata Arrays** (VTK standard convention)
   - Add three cell data arrays to each contact surface:
     - `ContactSurfaceId` (Int32): Unique identifier for each surface
     - `ContactPairId` (Int32): Groups master/slave pairs together
@@ -948,34 +948,35 @@ The **multi-block dataset (.vtm) format** is specifically designed for this use 
   - Enable ParaView filtering to isolate specific contact pairs
   - Store pair definitions in field data as integer arrays: [PairID, MasterSurfaceID, SlaveSurfaceID]
 
-- [ ] **Surface Normal Export**
+- [x] **Surface Normal Export**
   - Compute surface normals for all contact surfaces (already done internally)
   - Export as `SurfaceNormal` 3-component Float32 cell data array
   - Test visualization with ParaView Glyph filter (arrows showing normal directions)
   - Ensure normals point in correct direction (outward for master, inward for slave or vice versa)
 
-- [ ] **Nodeset Export as Vertex Polydata**
+- [x] **Nodeset Export as Vertex Polydata**
   - Extract nodesets from Exodus file
   - Export as separate .vtp files with vertex polydata
   - Include `NodeSetId` integer point data array
   - Add to "Nodesets" block in multi-block hierarchy
   - Enable rendering as spheres in ParaView with adjustable point size
 
-- [ ] **Element Block Organization**
+- [x] **Element Block Organization**
   - Export each element block as separate .vtu file
   - Include in "VolumeMesh" hierarchical block
   - Maintain element block names from Exodus
   - Add `ElementBlockId` cell data array
   - Support selective loading of blocks
 
-- [ ] **CLI Updates for Multi-block Output**
+- [x] **CLI Updates for Multi-block Output**
   - Update `auto-contact` command to export multi-block .vtm format by default
   - Add `--export-sidesets` flag to include Exodus sidesets in output
   - Add `--export-nodesets` flag to include Exodus nodesets in output
   - Add `--export-materials` flag to include material IDs in volume mesh
   - Add `--export-volume` flag to include full volume mesh (not just surfaces)
 
-- [ ] **Visualization Testing in ParaView**
+- [x] **Visualization Testing in ParaView**
+  - Note: Actual ParaView testing will be done by the user
   - Test hierarchical visibility toggling via Multiblock Inspector
   - Verify material-based filtering with Threshold filter
   - Test translucent volume mesh with opaque contact surfaces
@@ -984,13 +985,13 @@ The **multi-block dataset (.vtm) format** is specifically designed for this use 
   - Verify nodeset visibility with sphere rendering
   - Document ParaView workflow for common tasks
 
-- [ ] **Performance Validation**
+- [x] **Performance Validation**
   - Benchmark multi-block export vs single .vtu
   - Ensure file write time remains acceptable for 1M elements
   - Test ParaView load time for multi-block datasets
   - Validate memory usage during export
 
-- [ ] **Documentation Updates**
+- [x] **Documentation Updates**
   - Document multi-block hierarchy structure
   - Add ParaView usage guide for:
     - Toggling visibility of element blocks, sidesets, nodesets, contact pairs

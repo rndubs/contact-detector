@@ -212,6 +212,8 @@ impl ExodusReader {
             }
 
             mesh.elements.push(HexElement::new(node_ids));
+            // Use block ID as material ID (can be customized later)
+            mesh.material_ids.push(blk_id as i32);
         }
 
         // Store block indices
